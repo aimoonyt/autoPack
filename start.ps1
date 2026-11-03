@@ -16,8 +16,11 @@ if (-not (Test-Path ".venv\Scripts\python.exe")) {
     & .venv\Scripts\pip install -r requirements.txt
 }
 
-$log = Join-Path $env:TEMP "autopack-cloudflared.log"
-Remove-Item $log -ErrorAction SilentlyContinue
+# Log goes next to the bot: TEMP breaks on non-latin user names (C:\Users\A5A3~1)
+$dataDir = Join-Path $PSScriptRoot "data"
+if (-not (Test-Path -LiteralPath $dataDir)) { New-Item -ItemType Directory -Path $dataDir | Out-Null }
+$log = Join-Path $dataDir "cloudflared.log"
+if (Test-Path -LiteralPath $log) { Remove-Item -LiteralPath $log -Force }
 Write-Host "Starting tunnel..." -ForegroundColor Yellow
 $cf = Start-Process cloudflared -ArgumentList "tunnel", "--url", "http://localhost:8080" `
     -RedirectStandardError $log -WindowStyle Hidden -PassThru
@@ -26,8 +29,8 @@ try {
     $url = $null
     for ($i = 0; $i -lt 60 -and -not $url; $i++) {
         Start-Sleep -Seconds 1
-        if (Test-Path $log) {
-            $m = Select-String -Path $log -Pattern "https://(?!api\.)[a-z0-9-]+\.trycloudflare\.com" | Select-Object -First 1
+        if (Test-Path -LiteralPath $log) {
+            $m = Select-String -LiteralPath $log -Pattern "https://(?!api\.)[a-z0-9-]+\.trycloudflare\.com" | Select-Object -First 1
             if ($m) { $url = $m.Matches[0].Value + "/" }
         }
     }

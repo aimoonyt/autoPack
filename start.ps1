@@ -54,6 +54,17 @@ try {
     }
     Write-Host "Tunnel: $url" -ForegroundColor Green
 
+    # The URL is printed before Cloudflare can route it (error 1033 if opened too early).
+    # Wait until cloudflared reports a registered connection.
+    Write-Host "Waiting for Cloudflare to register the tunnel..." -ForegroundColor Yellow
+    $ready = $false
+    for ($i = 0; $i -lt 45 -and -not $ready; $i++) {
+        if (Select-String -LiteralPath $log -Pattern "Registered tunnel connection" -Quiet) { $ready = $true }
+        else { Start-Sleep -Seconds 1 }
+    }
+    if ($ready) { Start-Sleep -Seconds 3; Write-Host "Tunnel is up." -ForegroundColor Green }
+    else { Write-Host "Cloudflare is slow today; the mini app may need a minute before it opens." -ForegroundColor Yellow }
+
     $utf8 = New-Object System.Text.UTF8Encoding $false
     $lines = [System.IO.File]::ReadAllLines((Resolve-Path ".env"), $utf8) | Where-Object { $_ -notmatch "^\s*WEBAPP_URL\s*=" }
     $lines = @($lines) + "WEBAPP_URL=$url"

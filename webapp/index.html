@@ -150,7 +150,7 @@
         <button id="scCapture" class="btn"><span data-ic="copy"></span> Взять из сообщения</button>
       </div>
       <button id="scReset" class="btn danger wide">Вернуть стандартный текст</button>
-      <p class="muted small">{name} — имя юзера, {price} — цена доступа, {ic:star} — иконка из набора (список слотов во вкладке «Оформление»). Премиум-эмодзи проще всего так: оформи пост в Telegram как хочешь, нажми «Взять из сообщения» и перешли его боту — он сохранит всё как есть, с эмодзи и форматированием.</p>
+      <p class="muted small">{big:ТЕКСТ} — заголовок буквами-эмодзи, {name} — имя, {id} — ID, {packs} — наборов, {paid} — без подписи, {inbox} — во входящих, {price} — цена доступа, {ic:star} — иконка из набора (список слотов во вкладке «Оформление»). Премиум-эмодзи проще всего так: оформи пост в Telegram как хочешь, нажми «Взять из сообщения» и перешли его боту — он сохранит всё как есть, с эмодзи и форматированием.</p>
     </section>
 
     <section data-pane="stats" class="pane">
@@ -221,6 +221,16 @@
         <span>Премиум-эмодзи в сообщениях и кнопках бота</span>
         <input id="botCustomEmoji" type="checkbox" class="switch">
       </label>
+      <div class="card">
+        <label class="lbl">Буквы для заголовков</label>
+        <div id="lettersInfo" class="muted small" style="margin:0 0 8px"></div>
+        <p class="muted small">Заголовки вида {big:WELLCOME} собираются из твоих букв-эмодзи. Нажми кнопку и отправь боту сообщение: первая строка — буквы обычным текстом, вторая — те же буквы эмодзи из XMAPKETsymbols в том же порядке. Можно в несколько заходов.</p>
+        <div class="row tight">
+          <button id="lettersCapture" class="btn primary"><span data-ic="copy"></span> Научить буквам</button>
+          <button id="lettersReset" class="btn danger">Сбросить</button>
+        </div>
+      </div>
+      <div id="emojiRejected" class="note hidden"></div>
       <p class="muted small">Telegram показывает премиум-эмодзи в сообщениях бота, только если у владельца бота есть Telegram Premium или у бота куплен юзернейм на Fragment. Иначе бот сам откатится на обычные эмодзи. В мини-апке иконки видны всегда.</p>
       <h2 class="sub">Иконки по местам</h2>
       <div id="lookScope" class="chips">

@@ -65,11 +65,15 @@ def _norm(e: str) -> str:
 
 
 class Icons:
-    def __init__(self, bot: Bot, db: DB, pack_key: str = "icon_pack", map_key: str = "icon_map"):
+    def __init__(self, bot: Bot, db: DB, pack_key: str = "icon_pack", map_key: str = "icon_map",
+                 fill_unmatched: bool = True):
         self.bot = bot
         self.db = db
         self.pack_key = pack_key  # у бота и у мини-апки разные наборы
         self.map_key = map_key
+        # Бот: если по смыслу эмодзи не нашлось, всё равно берём эмодзи из набора, а не обычный
+        self.fill_unmatched = fill_unmatched
+        self.letters: dict[str, str] = {}
         self.pack_name: str | None = None
         self.items: list[dict] = []          # все эмодзи набора
         self.by_id: dict[str, dict] = {}
@@ -108,17 +112,48 @@ class Icons:
             self._fetched = time.time()
             self.by_id = {i["id"]: i for i in self.items}
         overrides = settings.get(self.map_key) or {}
+        letter_ids = set((settings.get("letters") or {}).values()) if self.fill_unmatched else set()
         self.resolved = {}
         for slot, (_, candidates) in SLOTS.items():
             item = self.by_id.get(overrides.get(slot) or "")
             if item is None and overrides.get(slot) != "none":
                 wanted = [_norm(c) for c in candidates]
                 for c in wanted:
-                    item = next((i for i in self.items if _norm(i["emoji"]) == c), None)
+                    item = next((i for i in self.items if _norm(i["emoji"]) == c and i["id"] not in letter_ids), None)
                     if item:
                         break
             if item:
                 self.resolved[slot] = item
+        if self.fill_unmatched and self.items:
+            first_pack = self.items[0]["pack"]
+            used = {i["id"] for i in self.resolved.values()}
+            letters = letter_ids
+            # сначала свободные эмодзи из первого набора (XMAPKETemojis), потом из остальных; буквы не трогаем
+            spare = [i for i in self.items if i["id"] not in used and i["id"] not in letters]
+            spare.sort(key=lambda i: i["pack"] != first_pack)
+            for slot in SLOTS:
+                if slot in self.resolved or overrides.get(slot) == "none" or not spare:
+                    continue
+                self.resolved[slot] = spare.pop(0)
+        self.letters = {k: v for k, v in (settings.get("letters") or {}).items() if v}
+
+    def big(self, text: str) -> str:
+        """Заголовок буквами-эмодзи (как WELLCOME в переходнике). Нет букв — жирный капс."""
+        text = text.strip()
+        if not self.letters or not self.custom_in_bot:
+            return f"<b>{html.escape(text.upper())}</b>"
+        out = []
+        for ch in text.upper():
+            cid = self.letters.get(ch)
+            if cid:
+                item = self.by_id.get(cid)
+                fb = html.escape((item or {}).get("emoji") or "🔤")
+                out.append(f'<tg-emoji emoji-id="{cid}">{fb}</tg-emoji>')
+            elif ch == " ":
+                out.append("  ")
+            else:
+                out.append(f"<b>{html.escape(ch)}</b>")
+        return "".join(out)
 
     def fallback(self, slot: str) -> str:
         return SLOTS[slot][1][0]
@@ -134,6 +169,7 @@ class Icons:
     def render(self, text: str, **values: str) -> str:
         """Подставляет {ic:слот} и {name}/{price}/... в тексты экранов."""
         text = _PLACEHOLDER.sub(lambda m: self.e(m.group(1)) if m.group(1) in SLOTS else m.group(0), text)
+        text = _BIG.sub(lambda m: self.big(m.group(1)), text)
         for key, value in values.items():
             text = text.replace("{" + key + "}", value)
         return text
@@ -144,6 +180,9 @@ class Icons:
 
 
 _PLACEHOLDER = re.compile(r"\{ic:([a-z_]+)\}")
+_BIG = re.compile(r"\{big:([^}]{1,40})\}")
+# когда Telegram последний раз отказал в премиум-эмодзи (для подсказки в админке)
+STRIPPED: dict[str, float] = {"at": 0.0}
 _TG_EMOJI = re.compile(r"<tg-emoji[^>]*>(.*?)</tg-emoji>", re.S)
 
 
@@ -175,5 +214,6 @@ class CustomEmojiFallback(BaseRequestMiddleware):
                 update["reply_markup"] = _strip_markup(markup)
             if not update:
                 raise
-            log.info("retrying %s without custom emoji", type(method).__name__)
+            log.warning("Telegram rejected custom emoji in %s, sent plain ones instead", type(method).__name__)
+            STRIPPED["at"] = time.time()
             return await make_request(bot, method.model_copy(update=update))

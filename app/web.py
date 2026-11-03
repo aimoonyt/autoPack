@@ -19,7 +19,7 @@ from . import screens
 from .bot import invoice_args
 from .broadcast import WEEKDAYS, Broadcaster
 from .db import DB
-from .icons import SLOTS, Icons
+from .icons import SLOTS, STRIPPED, Icons
 from .service import PackError, PackService, sticker_format
 
 log = logging.getLogger(__name__)
@@ -332,6 +332,8 @@ class Api:
             "weekdays": WEEKDAYS,
             "icon_errors": self.icons.errors,
             "app_icon_errors": self.app_icons.errors,
+            "letters": "".join(sorted((settings.get("letters") or {}).keys())),
+            "emoji_rejected_at": int(STRIPPED["at"]) or None,
             "unread": await self.db.unread_total(),
             "screens": await self.ser_screens(),
             "order_links": await screens.get_order_links(self.db),
@@ -416,7 +418,7 @@ class Api:
         self.require_admin(request)
         body = await request.json()
         target = str(body.get("target", ""))
-        if target != "broadcast" and not (target.startswith("screen:") and target[7:] in screens.SCREEN_LABELS):
+        if target not in ("broadcast", "letters") and not (target.startswith("screen:") and target[7:] in screens.SCREEN_LABELS):
             raise PackError("Непонятно, куда сохранять")
         await self.db.set_mode(self.user_id(request), "capture:" + target)
         return web.json_response({"ok": True})
@@ -506,6 +508,8 @@ class Api:
             await self.db.set_setting("icon_pack", name)
         if "bot_custom_emoji" in body:
             await self.db.set_setting("bot_custom_emoji", bool(body["bot_custom_emoji"]))
+        if body.get("reset_letters"):
+            await self.db.set_setting("letters", {})
         if "app_icon_pack" in body:
             await self.db.set_setting("app_icon_pack", str(body["app_icon_pack"]).strip())
         for key in ("icon_map", "app_icon_map"):

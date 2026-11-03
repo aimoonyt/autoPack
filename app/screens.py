@@ -39,60 +39,63 @@ DEFAULT_ORDER_LINKS = {
 }
 
 DEFAULT_TEXTS = {
+    # стиль Absolute Cinema: заголовок, строки «иконка + поле: значение»
     "menu": (
-        "{ic:sparkle} <b>Добро пожаловать, {name}!</b>\n\n"
-        "<blockquote>{ic:pack} <b>Упаковщик</b> — соберу стикерпак из твоих стикеров\n"
-        "{ic:chat} <b>Спамблок</b> — напиши мне, даже если у тебя спамблок\n"
-        "{ic:info} <b>Инфа</b> — прайс, шаблоны и контакты\n"
-        "{ic:order} <b>Заказ</b> — эмодзи, видео и баннеры</blockquote>\n\n"
-        "Выбери, что нужно {ic:down}"
+        "{big:XMAPKET}\n\n"
+        "{ic:sparkle} Добро пожаловать, <b>{name}</b>\n"
+        "{ic:user} ID: <code>{id}</code>\n"
+        "{ic:pack} Наборов: <b>{packs}</b>\n"
+        "{ic:unlock} Без подписи: <b>{paid}</b>\n"
+        "{ic:inbox} Во входящих: <b>{inbox}</b>\n"
+        "{ic:link} Переходник: @XMAPKET\n\n"
+        "Выберите действие:"
     ),
+    # стиль BLUEBLACK: заголовок буквами, блоки-цитаты с жирными строками
     "packer": (
-        "{ic:pack} <b>Упаковщик стикер-паков</b>\n\n"
-        "<blockquote>1. Жми «Новый набор» и придумай название\n"
-        "2. Кидай стикеры, фото или картинки — можно пачкой\n"
-        "3. Готово: набор в Telegram, ссылка у тебя</blockquote>\n\n"
-        "{ic:edit} В редакторе — порядок, эмодзи, название, удаление.\n"
-        "{ic:star} Бесплатно к названию добавляется подпись бота. "
-        "Убрать её и поменять ссылку — <b>{price} ⭐</b> за набор."
+        "{big:STICKERS}\n\n"
+        "<blockquote><b>{ic:add} Жми «Новый набор» и придумай название\n"
+        "{ic:upload} Кидай стикеры, фото, картинки — можно пачкой\n"
+        "{ic:check} Готово: набор в Telegram, ссылка у тебя</b></blockquote>\n\n"
+        "<blockquote>{ic:edit} Редактор: порядок, эмодзи, название, удаление\n"
+        "{ic:star} Убрать подпись бота и сменить ссылку — <b>{price}</b> звёзд за набор</blockquote>"
     ),
     "chat": (
-        "{ic:chat} <b>Спамблок</b>\n\n"
-        "<blockquote>Не можешь написать мне в личку? Пиши прямо сюда — текст, фото, "
-        "голосовые, видео, стикеры. Всё дойдёт до меня, а ответ придёт в этот чат.</blockquote>\n\n"
-        "{ic:check} Режим чата включён — просто отправляй сообщение.\n"
-        "{ic:back} Чтобы выйти, жми «Назад в меню»."
+        "{big:SPAMBLOCK}\n\n"
+        "<blockquote><b>{ic:chat} Пиши сюда, как мне в личку\n"
+        "{ic:image} Текст, фото, голосовые, видео, стикеры\n"
+        "{ic:check} Ответ придёт в этот чат</b></blockquote>\n\n"
+        "{ic:back} Выйти — «Назад в меню»"
     ),
     "info": (
-        "{ic:sparkle} <b>WELLCOME</b>\n\n"
-        "Это мой переходник, тут есть вся необходимая информация\n\n"
+        "{big:WELLCOME}\n\n"
+        "{ic:sparkle} Это мой переходник, тут есть вся необходимая информация\n\n"
         "{ic:emoji} Заказать эмодзи: https://t.me/m/F4b0iYCwZmYy\n"
         "{ic:video} Заказать видео: https://t.me/m/y-vh5NYEZmUy\n\n"
-        "{ic:money} <b>ПРАЙС</b>\n"
+        "{ic:money} <b>ПРАЙС</b> {ic:money}\n"
         "<blockquote><b>Эмодзи шаблонные</b>\n"
-        "1. <i>До 30 шт — 100р / 1$ / шт</i>\n"
-        "2. <i>Более 30 шт — 90р / 0.9$ / шт</i>\n"
+        "1. <i>До 30 шт - 100р/1$/шт</i>\n"
+        "2. <i>Более 30шт - 90р/0.9$/шт</i>\n"
         "<b>Эмодзи кастомные</b>\n"
-        "1. На основе шаблона от 200р / 2$\n"
-        "2. Полностью кастомный от 300р / 3$\n"
+        "1. На основе шаблона от 200р/2$\n"
+        "2. Полностью кастомный от 300р/3$\n"
         "<b>Видео</b>\n"
-        "1. <i>От 500р / 6$</i></blockquote>\n\n"
-        "{ic:pack} <b><i>Шаблоны</i></b>\n"
-        "• Эмодзи: https://t.me/addemoji/XMAPKETemojis\n"
-        "• Символы: https://t.me/addemoji/XMAPKETsymbols\n\n"
-        "{ic:check} Правки <b>входят</b> в стоимость заказа\n\n"
-        "{ic:user} <b>ЛИЧКА</b>\n"
-        "Я — @XMAPKET\n"
-        "Менеджер (если я не отвечаю) — @XMAPKETmngr\n\n"
-        "{ic:image} <b>РАБОТЫ</b>\n"
+        "1. <i>От 500р/6$</i></blockquote>\n\n"
+        "{ic:pack} <b><i>Шаблоны</i></b> {ic:pack}\n"
+        "<blockquote>{ic:emoji} Эмодзи: https://t.me/addemoji/XMAPKETemojis\n"
+        "{ic:fire} Символы: https://t.me/addemoji/XMAPKETsymbols</blockquote>\n\n"
+        "{ic:check} Правки <b>входят</b> в стоимость заказа {ic:check}\n\n"
+        "{ic:user} <b>ЛИЧКА</b> {ic:user}\n"
+        "Я - @XMAPKET {ic:sparkle}\n"
+        "Менеджер(если я не отвечаю) - @XMAPKETmngr\n\n"
+        "{ic:image} <b>РАБОТЫ</b> {ic:image}\n"
         "@XMAPKETwrk"
     ),
     "order": (
-        "{ic:order} <b>Заказ</b>\n\n"
-        "<blockquote>{ic:image} <b>Баннер</b> — шапки, обложки, превью\n"
-        "{ic:emoji} <b>Эмодзи</b> — шаблонные и полностью кастомные\n"
-        "{ic:video} <b>Видео</b> — анимации и ролики</blockquote>\n\n"
-        "Жми — откроется чат с готовым сообщением {ic:down}"
+        "{big:ORDER}\n\n"
+        "<blockquote><b>{ic:image} Баннер — шапки, обложки, превью\n"
+        "{ic:emoji} Эмодзи — шаблонные и кастомные\n"
+        "{ic:video} Видео — анимации и ролики</b></blockquote>\n\n"
+        "{ic:down} Жми — откроется чат с готовым сообщением"
     ),
 }
 
@@ -102,7 +105,9 @@ _TAGS = re.compile(r"<[^>]+>")
 
 def visible_length(text: str) -> int:
     """Сколько символов увидит Telegram (теги не считаются)."""
-    return len(html.unescape(_TAGS.sub("", re.sub(r"\{ic:[a-z_]+\}", "X", text))))
+    text = re.sub(r"\{big:([^}]*)\}", lambda m: m.group(1), text)
+    text = re.sub(r"\{(ic:[a-z_]+|name|id|packs|paid|inbox|price)\}", "XX", text)
+    return len(html.unescape(_TAGS.sub("", text)))
 
 
 async def get_screens(db: DB) -> dict[str, dict]:
@@ -175,23 +180,32 @@ async def keyboard(key: str, db: DB, icons: Icons, cfg: Config) -> InlineKeyboar
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-async def render(key: str, db: DB, icons: Icons, cfg: Config, name: str) -> tuple[str, str | None, InlineKeyboardMarkup]:
+async def render(key: str, db: DB, icons: Icons, cfg: Config, name: str,
+                 user_id: int | None = None) -> tuple[str, str | None, InlineKeyboardMarkup]:
     screens = await get_screens(db)
     price = str((await db.get_settings())["price"])
-    text = icons.render(screens[key]["text"], name=html.escape(name or "друг"), price=price)
+    packs = await db.get_packs(user_id) if user_id else []
+    inbox = await db.get_inbox(user_id) if user_id else []
+    text = icons.render(
+        screens[key]["text"], name=html.escape(name or "друг"), price=price,
+        id=str(user_id or "—"), packs=str(len(packs)), paid=str(sum(1 for p in packs if p["paid"])),
+        inbox=str(len(inbox)),
+    )
     return text, screens[key]["photo_file_id"], await keyboard(key, db, icons, cfg)
 
 
-async def send(bot: Bot, chat_id: int, key: str, db: DB, icons: Icons, cfg: Config, name: str) -> Message:
-    text, photo, markup = await render(key, db, icons, cfg, name)
+async def send(bot: Bot, chat_id: int, key: str, db: DB, icons: Icons, cfg: Config, name: str,
+               user_id: int | None = None) -> Message:
+    text, photo, markup = await render(key, db, icons, cfg, name, user_id or chat_id)
     if photo:
         return await bot.send_photo(chat_id, photo, caption=text, reply_markup=markup)
     return await bot.send_message(chat_id, text, reply_markup=markup)
 
 
-async def navigate(message: Message, key: str, db: DB, icons: Icons, cfg: Config, name: str) -> None:
+async def navigate(message: Message, key: str, db: DB, icons: Icons, cfg: Config, name: str,
+                   user_id: int | None = None) -> None:
     """Переход на экран в том же сообщении (если можно), иначе — новое сообщение."""
-    text, photo, markup = await render(key, db, icons, cfg, name)
+    text, photo, markup = await render(key, db, icons, cfg, name, user_id or message.chat.id)
     has_photo = bool(message.photo)
     try:
         if photo and has_photo:
@@ -208,4 +222,4 @@ async def navigate(message: Message, key: str, db: DB, icons: Icons, cfg: Config
         await message.delete()
     except TelegramBadRequest:
         pass
-    await send(message.bot, message.chat.id, key, db, icons, cfg, name)
+    await send(message.bot, message.chat.id, key, db, icons, cfg, name, user_id)

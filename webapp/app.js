@@ -779,6 +779,11 @@ function renderAdmin() {
   if (b.running) setTimeout(() => state.adminTab === "post" && !$("admin").classList.contains("hidden") && refreshAdmin(), 3000);
 
   // оформление
+  $("lettersInfo").textContent = a.letters ? `Знаю буквы: ${a.letters}` : "Буквы ещё не заданы — заголовки будут жирным капсом";
+  $("lettersReset").classList.toggle("hidden", !a.letters);
+  const rej = a.emoji_rejected_at && a.emoji_rejected_at > Date.now() / 1000 - 86400 * 3;
+  $("emojiRejected").classList.toggle("hidden", !rej);
+  if (rej) $("emojiRejected").textContent = `Telegram отклонил премиум-эмодзи в сообщении бота (${fmtDate(a.emoji_rejected_at)}) — бот отправил обычные. Так бывает, если у владельца бота нет Telegram Premium.`;
   $("iconPack").value = a.settings.icon_pack;
   $("appIconPack").value = a.settings.app_icon_pack;
   $("botCustomEmoji").checked = a.settings.bot_custom_emoji;
@@ -913,6 +918,11 @@ function lookIcon(slot) {
   return state.lookScope === "app" ? svgIcon(slot) : h("span", { class: "ic ic-text" }, s?.fallback || "");
 }
 $("saveIconPack").addEventListener("click", () => saveLook({ icon_pack: $("iconPack").value, app_icon_pack: $("appIconPack").value }, "Загружаю наборы…").then(() => toast("Применено")).catch(() => {}));
+$("lettersCapture").addEventListener("click", () => capture("letters", "уроком букв: первая строка — буквы текстом, вторая — те же буквы эмодзи").catch(() => {}));
+$("lettersReset").addEventListener("click", async () => {
+  if (!(await confirmBox("Забыть все буквы?"))) return;
+  await saveLook({ reset_letters: true }, "Сбрасываю…").catch(() => {});
+});
 $("botCustomEmoji").addEventListener("change", (e) => saveLook({ bot_custom_emoji: e.target.checked }, "").catch(() => {}));
 
 function pickIcon(slot) {

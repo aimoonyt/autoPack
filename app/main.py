@@ -39,7 +39,7 @@ async def main() -> None:
     svc = PackService(bot, db, me.username, cfg.default_emoji, cfg.admin_ids)
     icons = Icons(bot, db)
     await icons.refresh()
-    app_icons = Icons(bot, db, "app_icon_pack", "app_icon_map")
+    app_icons = Icons(bot, db, "app_icon_pack", "app_icon_map", fill_unmatched=False)
     caster = Broadcaster(bot, db, cfg.timezone)
 
     dp = Dispatcher()

@@ -388,13 +388,33 @@ async def on_capture(m: Message, db: DB, svc: PackService, cfg: Config, icons: I
                 await m.answer_photo(post["photo_file_id"], caption=post["text"] or None, reply_markup=post_markup(post))
             else:
                 await m.answer(post["text"], reply_markup=post_markup(post))
+        elif target == "letters":
+            raw = m.text or m.caption or ""
+            plain = [ch.upper() for ch in raw.split("\n", 1)[0] if ch.isalnum()]
+            ents = [e for e in (m.entities or m.caption_entities or []) if e.type == "custom_emoji"]
+            if not plain or not ents:
+                raise ValueError(
+                    "Нужно две строки: первая — буквы обычным текстом (например WELCOM), "
+                    "вторая — те же буквы твоими эмодзи в том же порядке"
+                )
+            if len(plain) != len(ents):
+                raise ValueError(f"Букв в первой строке {len(plain)}, а эмодзи {len(ents)} — должно совпадать")
+            settings = await db.get_settings()
+            letters = dict(settings.get("letters") or {})
+            letters.update({ch: e.custom_emoji_id for ch, e in zip(plain, ents)})
+            await db.set_setting("letters", letters)
+            await icons.refresh(force=True)
+            await m.answer(
+                f"{icons.e('check')} Запомнил буквы: <b>{html.escape(''.join(sorted(letters)))}</b>\n\n"
+                f"Проверка: {icons.big('XMAPKET')}"
+            )
         elif target.startswith("screen:") and target[7:] in screens.SCREEN_LABELS:
             key = target[7:]
             if not text:
                 raise ValueError("В сообщении нет текста")
             await screens.save_screen(db, key, text, photo if photo else False)
             await m.answer(f"{icons.e('check')} Сохранил экран «{screens.SCREEN_LABELS[key]}». Вот так он выглядит:")
-            await screens.send(m.bot, m.chat.id, key, db, icons, cfg, m.from_user.first_name)
+            await screens.send(m.bot, m.chat.id, key, db, icons, cfg, m.from_user.first_name, uid)
     except ValueError as e:
         await m.answer(f"{icons.e('warning')} Не сохранил: {html.escape(str(e))}")
     except TelegramBadRequest as e:

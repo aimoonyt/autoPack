@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>Наборы стикеров</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/lottie-web/5.12.2/lottie_light.min.js"></script>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <main id="home" class="view">
+    <header class="bar"><h1>Мои наборы</h1></header>
+    <div id="pending" class="note hidden"></div>
+    <div id="packs" class="packs"></div>
+    <button id="newPackBtn" class="btn primary wide">＋ Новый набор</button>
+
+    <section class="section">
+      <div class="section-head">
+        <h2>Входящие <span id="inboxCount" class="muted"></span></h2>
+        <button id="inboxSelectBtn" class="link">Выбрать</button>
+      </div>
+      <p class="muted small">Стикеры, которые ты кинул боту без активного набора.</p>
+      <div id="inbox" class="grid"></div>
+      <div id="inboxActions" class="actions hidden">
+        <button id="inboxToPack" class="btn primary">В набор</button>
+        <button id="inboxDelete" class="btn danger">Удалить</button>
+      </div>
+    </section>
+  </main>
+
+  <main id="pack" class="view hidden">
+    <header class="bar">
+      <input id="packTitle" class="title-input" maxlength="64" enterkeyhint="done">
+    </header>
+    <div class="pack-meta">
+      <span id="packCount" class="muted"></span>
+      <button id="packOpen" class="link">Открыть в Telegram ↗</button>
+    </div>
+    <label class="switch-row">
+      <span>Бот добавляет новые стикеры сюда</span>
+      <input id="packActive" type="checkbox" class="switch">
+    </label>
+    <p class="muted small">Зажми стикер и тащи, чтобы поменять порядок. Тап — эмодзи и удаление.</p>
+    <div id="stickers" class="grid"></div>
+    <div class="row">
+      <button id="addFromInbox" class="btn">＋ Из входящих</button>
+      <label class="btn">⬆ Загрузить файл
+        <input id="uploadInput" type="file" accept="image/*,.tgs,.webm" multiple hidden>
+      </label>
+    </div>
+    <button id="deletePack" class="btn danger wide">Удалить набор</button>
+  </main>
+
+  <div id="sheet" class="sheet hidden">
+    <div class="sheet-backdrop"></div>
+    <div class="sheet-body" id="sheetBody"></div>
+  </div>
+
+  <div id="busy" class="busy hidden"><div class="spinner"></div><div id="busyText"></div></div>
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

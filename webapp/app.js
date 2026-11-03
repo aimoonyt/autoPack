@@ -207,6 +207,69 @@ function goBack() {
 }
 tg?.BackButton?.onClick(goBack);
 
+// ---------- темы ----------
+// bg, bg2, text, btn, btn2 — для превью в списке тем
+const THEMES = [
+  { id: "tg", name: "Как в Telegram" },
+  { id: "light", name: "Светлая", c: ["#f6f7fb", "#ffffff", "#14151a", "#3d6bff", "#7b5cff"] },
+  { id: "dark", name: "Тёмная", c: ["#0f1013", "#1b1c21", "#f1f2f4", "#4c8dff", "#8a6bff"] },
+  { id: "midnight", name: "Полночь", c: ["#0b1026", "#151b3a", "#e8ebff", "#5b6cff", "#b04dff"] },
+  { id: "neon", name: "Неон", c: ["#07070b", "#13131b", "#f5f5ff", "#ff2fa0", "#00d4ff"] },
+  { id: "sunset", name: "Закат", c: ["#1a0f12", "#2a1a1e", "#fff1ea", "#ff7a45", "#ff3d7f"] },
+  { id: "mint", name: "Мята", c: ["#eef8f4", "#ffffff", "#0f2a22", "#12b886", "#1fa2c9"] },
+  { id: "mono", name: "Монохром", c: ["#000000", "#111111", "#ffffff", "#ffffff", "#cfcfcf"] },
+];
+
+function currentTheme() { return document.documentElement.dataset.theme || "tg"; }
+
+function applyTheme(id, save = true) {
+  if (!THEMES.some((t) => t.id === id)) id = "tg";
+  document.documentElement.dataset.theme = id;
+  const bg = getComputedStyle(document.documentElement).getPropertyValue("--bg").trim();
+  try {
+    if (tg?.isVersionAtLeast?.("6.1")) {
+      tg.setHeaderColor(id === "tg" ? "bg_color" : bg);
+      tg.setBackgroundColor(id === "tg" ? "bg_color" : bg);
+    }
+    if (tg?.isVersionAtLeast?.("7.10")) tg.setBottomBarColor(id === "tg" ? "bottom_bar_bg_color" : bg);
+  } catch (_) {}
+  if (!save) return;
+  try { localStorage.setItem("theme", id); } catch (_) {}
+  // облако Telegram — тема одна на всех устройствах юзера
+  try { if (tg?.isVersionAtLeast?.("6.9")) tg.CloudStorage.setItem("theme", id); } catch (_) {}
+}
+
+function syncThemeFromCloud() {
+  try {
+    if (!tg?.isVersionAtLeast?.("6.9")) return;
+    tg.CloudStorage.getItem("theme", (err, value) => {
+      if (!err && value && value !== currentTheme()) applyTheme(value);
+    });
+  } catch (_) {}
+}
+
+function themePreview(t) {
+  const p = tg?.themeParams || {};
+  const [bg, bg2, text, btn, btn2] = t.c || [p.bg_color || "#ffffff", p.secondary_bg_color || "#f1f1f4",
+    p.text_color || "#111111", p.button_color || "#2481cc", p.button_color || "#2481cc"];
+  return h("div", { class: "theme-prev", style: `background:${bg}` },
+    h("div", { class: "pb", style: `background:linear-gradient(135deg,${btn},${btn2})` }),
+    h("div", { class: "pl", style: `background:${text}` }),
+    h("div", { class: "pl", style: `background:${bg2};opacity:1;width:90%;height:12px` }),
+    h("div", { class: "pbtn", style: `background:linear-gradient(135deg,${btn},${btn2})` }));
+}
+
+function themeSheet() {
+  const render = () => openSheet(
+    h("h3", {}, "Тема оформления"),
+    h("div", { class: "themes" }, THEMES.map((t) =>
+      h("div", { class: "theme-card" + (currentTheme() === t.id ? " active" : ""), onclick: () => { applyTheme(t.id); haptic(); render(); } },
+        themePreview(t), h("div", { class: "theme-name" }, t.name)))),
+    h("p", { class: "muted small" }, "Тема запоминается и подтягивается на других твоих устройствах."),
+  );
+  render();
+}
+
 // ---------- главная ----------
 async function loadHome() {
   state.me = await api("GET", "/api/me");
@@ -216,6 +279,11 @@ async function loadHome() {
 function renderHome() {
   const { packs, inbox, pending_title, is_admin } = state.me;
   $("adminBtn").classList.toggle("hidden", !is_admin);
+  $("hsPacks").textContent = packs.length;
+  $("hsStickers").textContent = packs.reduce((n, p) => n + p.count, 0);
+  $("hsInbox").textContent = inbox.length;
+  const name = tg?.initDataUnsafe?.user?.first_name;
+  if (name) $("heroHello").textContent = `Привет, ${name}! Собирай стикерпаки в пару тапов`;
   const pending = $("pending");
   if (pending_title) {
     pending.textContent = `Бот ждёт первый стикер для набора «${pending_title}».`;
@@ -259,10 +327,12 @@ function packCard(p, onClick) {
       h("div", { class: "muted small", style: "margin:0;display:flex;gap:8px;align-items:center" },
         stickersWord(p.count),
         p.access ? null : h("span", { class: "lock-badge" }, ic("lock"), "с подписью"))),
-    p.active ? h("span", { class: "badge" }, "активный") : null);
+    p.active ? h("span", { class: "badge" }, "активный") : null,
+    onClick ? null : h("span", { class: "chev" }, "›"));
 }
 
 $("adminBtn").addEventListener("click", openAdmin);
+$("themeBtn").addEventListener("click", themeSheet);
 
 $("inboxSelectBtn").addEventListener("click", () => {
   state.inboxSelect = !state.inboxSelect;
@@ -1054,6 +1124,8 @@ if (!tg?.initData) {
     h("h1", {}, "Открой через бота"),
     h("p", { class: "muted" }, "Эта страница работает только как мини-апп внутри Telegram.")));
 } else {
+  applyTheme(currentTheme(), false);
+  syncThemeFromCloud();
   fillIcons();
   withBusy("Загружаю…", () => Promise.all([loadIcons(), loadHome()]))
     .then(async () => {

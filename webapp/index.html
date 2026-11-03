@@ -8,13 +8,28 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/lottie-web/5.12.2/lottie_light.min.js"></script>
   <link rel="stylesheet" href="/static/style.css?v={{v}}">
+  <script>
+    // тема ставится до отрисовки, чтобы не мигало
+    try { var t = localStorage.getItem("theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+  </script>
 </head>
 <body>
   <!-- ===== Главная ===== -->
   <main id="home" class="view">
-    <header class="bar">
-      <h1><span data-ic="pack"></span> Мои наборы</h1>
-      <button id="adminBtn" class="icon-btn hidden" title="Админка"><span data-ic="settings"></span></button>
+    <header class="hero">
+      <div class="hero-top">
+        <h1><span data-ic="pack"></span> Мои наборы</h1>
+        <div class="hero-actions">
+          <button id="themeBtn" class="icon-btn" title="Тема"><span data-ic="palette"></span></button>
+          <button id="adminBtn" class="icon-btn hidden" title="Админка"><span data-ic="settings"></span></button>
+        </div>
+      </div>
+      <div id="heroHello" class="hero-hello">Собирай стикерпаки в пару тапов</div>
+      <div class="hero-stats">
+        <div class="hero-stat"><div class="v" id="hsPacks">0</div><div class="k">наборов</div></div>
+        <div class="hero-stat"><div class="v" id="hsStickers">0</div><div class="k">стикеров</div></div>
+        <div class="hero-stat"><div class="v" id="hsInbox">0</div><div class="k">во входящих</div></div>
+      </div>
     </header>
     <div id="pending" class="note hidden"></div>
     <div id="packs" class="packs"></div>

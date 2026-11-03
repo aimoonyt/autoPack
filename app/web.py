@@ -1,6 +1,7 @@
 """HTTP API для мини-апки + раздача её статики."""
 import asyncio
 import hashlib
+import html
 import hmac
 import logging
 import mimetypes
@@ -9,11 +10,12 @@ from collections import OrderedDict
 from pathlib import Path
 
 from aiogram import Bot
-from aiogram.exceptions import TelegramBadRequest
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.types import BufferedInputFile
 from aiogram.utils.web_app import safe_parse_webapp_init_data
 from aiohttp import web
 
+from . import screens
 from .bot import invoice_args
 from .broadcast import WEEKDAYS, Broadcaster
 from .db import DB
@@ -43,7 +45,8 @@ def json_error(status: int, message: str) -> web.Response:
 
 
 class Api:
-    def __init__(self, bot: Bot, db: DB, svc: PackService, icons: Icons, caster: Broadcaster, token: str):
+    def __init__(self, bot: Bot, db: DB, svc: PackService, icons: Icons, caster: Broadcaster, token: str, cfg=None):
+        self.cfg = cfg
         self.bot = bot
         self.db = db
         self.svc = svc
@@ -322,7 +325,159 @@ class Api:
                 "timezone": str(self.caster.tz),
             },
             "weekdays": WEEKDAYS,
+            "icon_errors": self.icons.errors,
+            "unread": await self.db.unread_total(),
+            "screens": await self.ser_screens(),
+            "order_links": await screens.get_order_links(self.db),
         })
+
+    async def ser_screens(self) -> list[dict]:
+        data = await screens.get_screens(self.db)
+        return [
+            {"key": k, "label": screens.SCREEN_LABELS[k], "text": v["text"], "custom": v["custom"],
+             "photo": self.furl(v["photo_file_id"]), "default": screens.DEFAULT_TEXTS[k]}
+            for k, v in data.items()
+        ]
+
+    async def _upload_photo(self, request: web.Request) -> str:
+        """Принимает картинку из мини-апки и возвращает её file_id в Telegram."""
+        uid = self.user_id(request)
+        reader = await request.multipart()
+        data, filename = None, "photo.jpg"
+        async for part in reader:
+            if part.name == "file":
+                filename = part.filename or filename
+                data = await part.read(decode=False)
+        if not data:
+            raise PackError("Файл не пришёл")
+        # Заливаем фотку админу в личку, чтобы получить file_id, и сразу удаляем сообщение
+        msg = await self.bot.send_photo(uid, BufferedInputFile(data, filename=filename),
+                                        caption="Картинка сохранена", disable_notification=True)
+        try:
+            await self.bot.delete_message(uid, msg.message_id)
+        except TelegramBadRequest:
+            pass
+        return msg.photo[-1].file_id
+
+    # --- экраны меню ---
+    def _screen_key(self, request: web.Request) -> str:
+        key = request.match_info["key"]
+        if key not in screens.SCREEN_LABELS:
+            raise PackError("Нет такого экрана")
+        return key
+
+    async def admin_screen(self, request: web.Request) -> web.Response:
+        self.require_admin(request)
+        key = self._screen_key(request)
+        body = await request.json()
+        try:
+            if "text" in body or body.get("remove_photo"):
+                await screens.save_screen(
+                    self.db, key,
+                    text=str(body["text"]).strip() if "text" in body else None,
+                    photo_file_id=None if body.get("remove_photo") else False,
+                )
+        except ValueError as e:
+            raise PackError(str(e))
+        if key == "order" and isinstance(body.get("links"), dict):
+            links = {}
+            for k in screens.DEFAULT_ORDER_LINKS:
+                url = str(body["links"].get(k) or "").strip()
+                if url and not url.startswith(("https://", "http://", "tg://")):
+                    raise PackError("Ссылки должны начинаться с https://")
+                if url:
+                    links[k] = url
+            await self.db.set_setting("order_links", links)
+        return await self.admin_state(request)
+
+    async def admin_screen_photo(self, request: web.Request) -> web.Response:
+        self.require_admin(request)
+        key = self._screen_key(request)
+        file_id = await self._upload_photo(request)
+        try:
+            await screens.save_screen(self.db, key, photo_file_id=file_id)
+        except ValueError as e:
+            raise PackError(str(e))
+        return await self.admin_state(request)
+
+    async def admin_screen_test(self, request: web.Request) -> web.Response:
+        self.require_admin(request)
+        key = self._screen_key(request)
+        await screens.send(self.bot, self.user_id(request), key, self.db, self.icons, self.cfg, "Тест")
+        return web.json_response({"ok": True})
+
+    async def admin_capture(self, request: web.Request) -> web.Response:
+        self.require_admin(request)
+        body = await request.json()
+        target = str(body.get("target", ""))
+        if target != "broadcast" and not (target.startswith("screen:") and target[7:] in screens.SCREEN_LABELS):
+            raise PackError("Непонятно, куда сохранять")
+        await self.db.set_mode(self.user_id(request), "capture:" + target)
+        return web.json_response({"ok": True})
+
+    # --- спамблок-мессенджер ---
+    def ser_message(self, m: dict) -> dict:
+        return {
+            "id": m["id"], "out": bool(m["outgoing"]), "kind": m["kind"], "text": m["text"],
+            "at": m["created_at"], "file_name": m["file_name"],
+            "format": m["fmt"] or ("static" if m["kind"] == "sticker" else None),
+            "file": self.furl(m["file_id"]), "thumb": self.furl(m["thumb_id"]),
+        }
+
+    async def admin_dialogs(self, request: web.Request) -> web.Response:
+        self.require_admin(request)
+        return web.json_response({"dialogs": [
+            {"user_id": d["user_id"], "name": d["first_name"] or str(d["user_id"]), "username": d["username"],
+             "blocked": bool(d["blocked"]), "unread": d["unread"], "last": self.ser_message(d)}
+            for d in await self.db.dialogs()
+        ]})
+
+    async def admin_chat(self, request: web.Request) -> web.Response:
+        self.require_admin(request)
+        uid = int(request.match_info["uid"])
+        after = int(request.query.get("after", 0))
+        user = await self.db.get_user(uid)
+        messages = await self.db.get_messages(uid, after)
+        await self.db.mark_read(uid)
+        return web.json_response({
+            "user": {"user_id": uid, "name": user["first_name"] or str(uid), "username": user["username"],
+                     "blocked": bool(user["blocked"]), "in_chat": user["mode"] == "chat"},
+            "messages": [self.ser_message(m) for m in messages],
+        })
+
+    async def admin_chat_send(self, request: web.Request) -> web.Response:
+        self.require_admin(request)
+        uid = int(request.match_info["uid"])
+        header = f"{self.icons.e('chat')} <b>Ответ:</b>\n\n"
+        try:
+            if request.content_type.startswith("multipart/"):
+                reader = await request.multipart()
+                data, filename, text = None, "photo.jpg", ""
+                async for part in reader:
+                    if part.name == "file":
+                        filename = part.filename or filename
+                        data = await part.read(decode=False)
+                    elif part.name == "text":
+                        text = (await part.text()).strip()
+                if not data:
+                    raise PackError("Файл не пришёл")
+                body = html.escape(text)
+                msg = await self.bot.send_photo(uid, BufferedInputFile(data, filename=filename),
+                                                caption=(header + body) if body else header.strip())
+                await self.db.add_message(uid, True, "photo", body or None, msg.photo[-1].file_id)
+            else:
+                text = str((await request.json()).get("text", "")).strip()
+                if not text:
+                    raise PackError("Пустое сообщение")
+                if len(text) > 4000:
+                    raise PackError("Слишком длинно, максимум 4000 символов")
+                body = html.escape(text)
+                await self.bot.send_message(uid, header + body)
+                await self.db.add_message(uid, True, "text", body)
+        except TelegramForbiddenError:
+            await self.db.set_blocked(uid)
+            raise PackError("Юзер заблокировал бота — сообщение не дойдёт")
+        return await self.admin_chat(request)
 
     async def admin_settings(self, request: web.Request) -> web.Response:
         self.require_admin(request)
@@ -342,8 +497,6 @@ class Api:
             await self.db.set_setting("suffix", suffix)
         if "icon_pack" in body:
             name = str(body["icon_pack"]).strip()
-            if "/" in name:
-                name = name.rstrip("/").rsplit("/", 1)[-1]  # вставили ссылку t.me/addemoji/...
             await self.db.set_setting("icon_pack", name)
         if "bot_custom_emoji" in body:
             await self.db.set_setting("bot_custom_emoji", bool(body["bot_custom_emoji"]))
@@ -378,25 +531,10 @@ class Api:
 
     async def admin_broadcast_photo(self, request: web.Request) -> web.Response:
         self.require_admin(request)
-        uid = self.user_id(request)
-        reader = await request.multipart()
-        data, filename = None, "photo.jpg"
-        async for part in reader:
-            if part.name == "file":
-                filename = part.filename or filename
-                data = await part.read(decode=False)
-        if not data:
-            raise PackError("Файл не пришёл")
-        # Заливаем фотку админу в личку, чтобы получить file_id, и сразу удаляем сообщение
-        msg = await self.bot.send_photo(uid, BufferedInputFile(data, filename=filename),
-                                        caption="Картинка для рассылки сохранена", disable_notification=True)
+        file_id = await self._upload_photo(request)
         post = (await self.db.get_settings())["broadcast"]
-        post["photo_file_id"] = msg.photo[-1].file_id
+        post["photo_file_id"] = file_id
         await self.db.set_setting("broadcast", post)
-        try:
-            await self.bot.delete_message(uid, msg.message_id)
-        except TelegramBadRequest:
-            pass
         return await self.admin_state(request)
 
     async def admin_broadcast_test(self, request: web.Request) -> web.Response:
@@ -462,8 +600,9 @@ class Api:
         return web.Response(body=body, content_type=ctype, headers={"Cache-Control": "private, max-age=86400"})
 
 
-def build_app(bot: Bot, db: DB, svc: PackService, icons: Icons, caster: Broadcaster, token: str) -> web.Application:
-    api = Api(bot, db, svc, icons, caster, token)
+def build_app(bot: Bot, db: DB, svc: PackService, icons: Icons, caster: Broadcaster, token: str,
+              cfg=None) -> web.Application:
+    api = Api(bot, db, svc, icons, caster, token, cfg)
 
     @web.middleware
     async def middleware(request: web.Request, handler):
@@ -513,6 +652,13 @@ def build_app(bot: Bot, db: DB, svc: PackService, icons: Icons, caster: Broadcas
     r.add_post("/api/admin/broadcast/test", api.admin_broadcast_test)
     r.add_post("/api/admin/broadcast/send", api.admin_broadcast_send)
     r.add_post("/api/admin/refund", api.admin_refund)
+    r.add_put("/api/admin/screens/{key}", api.admin_screen)
+    r.add_post("/api/admin/screens/{key}/photo", api.admin_screen_photo)
+    r.add_post("/api/admin/screens/{key}/test", api.admin_screen_test)
+    r.add_post("/api/admin/capture", api.admin_capture)
+    r.add_get("/api/admin/chats", api.admin_dialogs)
+    r.add_get("/api/admin/chats/{uid}", api.admin_chat)
+    r.add_post("/api/admin/chats/{uid}/send", api.admin_chat_send)
     r.add_get("/f/{file_id}", api.file)
 
     version = str(int(time.time()))  # сбивает кеш вебвью Telegram после обновления

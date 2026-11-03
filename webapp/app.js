@@ -189,7 +189,8 @@ function inboxPicker(items, selected, onChange) {
 
 // ---------- навигация ----------
 function showView(id) {
-  for (const v of ["home", "pack", "admin"]) $(v).classList.toggle("hidden", v !== id);
+  for (const v of ["home", "pack", "admin", "chat"]) $(v).classList.toggle("hidden", v !== id);
+  if (id !== "chat") stopChatPolling();
   if (id === "home") tg?.BackButton?.hide(); else tg?.BackButton?.show();
   window.scrollTo(0, 0);
 }
@@ -200,7 +201,11 @@ async function goHome() {
   showView("home");
   await withBusy("", loadHome).catch(() => {});
 }
-tg?.BackButton?.onClick(goHome);
+function goBack() {
+  if (!$("chat").classList.contains("hidden")) { showView("admin"); refreshAdmin(); return; }
+  goHome();
+}
+tg?.BackButton?.onClick(goBack);
 
 // ---------- главная ----------
 async function loadHome() {
@@ -616,6 +621,7 @@ async function openAdmin() {
   await withBusy("Загружаю админку…", loadAdmin);
   showView("admin");
   renderAdmin();
+  if (state.adminTab === "chats") loadDialogs();
 }
 
 async function loadAdmin() {
@@ -628,12 +634,17 @@ document.querySelectorAll("#adminTabs .tab").forEach((t) => t.addEventListener("
   state.adminTab = t.dataset.tab;
   haptic();
   renderAdmin();
+  if (state.adminTab === "chats") loadDialogs();
 }));
 
 function renderAdmin() {
   const a = state.admin;
   document.querySelectorAll("#adminTabs .tab").forEach((t) => t.classList.toggle("active", t.dataset.tab === state.adminTab));
   document.querySelectorAll("#admin .pane").forEach((p) => p.classList.toggle("hidden", p.dataset.pane !== state.adminTab));
+
+  $("unreadBadge").textContent = a.unread;
+  $("unreadBadge").classList.toggle("hidden", !a.unread);
+  renderScreenEditor();
 
   // статистика
   const st = a.stats;
@@ -689,7 +700,9 @@ function renderAdmin() {
       ic(key),
       h("span", { class: "name" }, s.label),
       h("span", { class: "muted small", style: "margin:0" }, a.settings.icon_map[key] ? "вручную" : (s.icon ? "авто" : "обычный")))));
-  if (!(state.icons.all || []).length) {
+  if (a.icon_errors?.length) {
+    $("slotList").prepend(h("div", { class: "note" }, `Не загрузились наборы: ${a.icon_errors.join(", ")} — проверь имена выше.`));
+  } else if (!(state.icons.all || []).length) {
     $("slotList").prepend(h("div", { class: "note" }, "Набор эмодзи не загрузился — проверь имя набора выше."));
   }
 }
@@ -735,6 +748,14 @@ async function saveBroadcast(silent) {
 }
 $("bcSave").addEventListener("click", () => saveBroadcast(false).catch(() => {}));
 $("bcEnabled").addEventListener("change", () => saveBroadcast(true).catch(() => { $("bcEnabled").checked = !$("bcEnabled").checked; }));
+
+async function capture(target, what) {
+  await withBusy("", () => api("POST", "/api/admin/capture", { target }));
+  tg?.showAlert
+    ? tg.showAlert(`Теперь перешли или отправь боту сообщение — оно станет ${what}. Премиум-эмодзи, форматирование и картинка сохранятся.`, () => tg.close())
+    : toast("Теперь перешли боту сообщение");
+}
+$("bcCapture").addEventListener("click", () => capture("broadcast", "постом для рассылки").catch(() => {}));
 
 $("bcTest").addEventListener("click", async () => {
   await saveBroadcast(true);
@@ -799,6 +820,234 @@ function pickIcon(slot) {
   );
 }
 
+// ---------- экраны меню ----------
+state.screenKey = "menu";
+
+function currentScreen() {
+  return state.admin.screens.find((x) => x.key === state.screenKey);
+}
+
+function renderScreenEditor() {
+  const a = state.admin;
+  $("screenChips").replaceChildren(...a.screens.map((sc) =>
+    h("button", { class: "chip-btn" + (sc.key === state.screenKey ? " active" : ""), onclick: () => { state.screenKey = sc.key; renderScreenEditor(); } },
+      sc.label, sc.photo ? h("span", { class: "dot", title: "есть баннер" }) : null)));
+  const sc = currentScreen();
+  $("scPhotoBox").replaceChildren(sc.photo ? h("img", { src: sc.photo }) : h("div", { class: "muted small" }, "Без баннера"));
+  $("scPhotoRemove").classList.toggle("hidden", !sc.photo);
+  if (document.activeElement !== $("scText") || $("scText").dataset.key !== sc.key) {
+    $("scText").value = sc.text;
+    $("scText").dataset.key = sc.key;
+  }
+  $("scReset").classList.toggle("hidden", !sc.custom);
+  $("orderLinks").classList.toggle("hidden", sc.key !== "order");
+  $("olBanner").value = a.order_links.banner;
+  $("olEmoji").value = a.order_links.emoji;
+  $("olVideo").value = a.order_links.video;
+  updateScreenHint();
+}
+
+function visibleLength(text) {
+  const d = document.createElement("div");
+  d.innerHTML = text.replace(/\{ic:[a-z_]+\}/g, "X").replace(/<[^>]+>/g, "");
+  return d.textContent.length;
+}
+function updateScreenHint() {
+  const sc = state.admin && currentScreen();
+  if (!sc) return;
+  const len = visibleLength($("scText").value);
+  $("scTextHint").textContent = sc.photo ? `${len}/1024 (с баннером Telegram даёт максимум 1024)` : `${len} символов`;
+}
+$("scText").addEventListener("input", updateScreenHint);
+
+async function saveScreen(extra = {}, msg = "Экран сохранён") {
+  const sc = currentScreen();
+  const body = { text: $("scText").value, ...extra };
+  if (sc.key === "order") body.links = { banner: $("olBanner").value, emoji: $("olEmoji").value, video: $("olVideo").value };
+  state.admin = await withBusy("Сохраняю…", () => api("PUT", `/api/admin/screens/${sc.key}`, body));
+  if (msg) { success(); toast(msg); }
+  renderAdmin();
+}
+$("scSave").addEventListener("click", () => saveScreen().catch(() => {}));
+$("scReset").addEventListener("click", async () => {
+  if (!(await confirmBox("Вернуть стандартный текст этого экрана?"))) return;
+  $("scText").value = "";
+  await saveScreen({}, "Вернул стандартный").catch(() => {});
+});
+$("scTest").addEventListener("click", async () => {
+  await saveScreen({}, "").catch(() => { throw 0; });
+  await withBusy("Отправляю…", () => api("POST", `/api/admin/screens/${state.screenKey}/test`));
+  success(); toast("Отправил тебе в бота — глянь");
+});
+$("scCapture").addEventListener("click", () => capture(`screen:${state.screenKey}`, `экраном «${currentScreen().label}»`).catch(() => {}));
+$("scPhotoInput").addEventListener("change", async (e) => {
+  const f = e.target.files[0];
+  e.target.value = "";
+  if (!f) return;
+  const fd = new FormData();
+  fd.append("file", f, f.name);
+  state.admin = await withBusy("Загружаю баннер…", () => api("POST", `/api/admin/screens/${state.screenKey}/photo`, fd));
+  renderAdmin();
+});
+$("scPhotoRemove").addEventListener("click", () => saveScreen({ remove_photo: true }, "Баннер убран").catch(() => {}));
+
+// ---------- спамблок: диалоги и чат ----------
+const KIND_LABEL = { photo: "Фото", sticker: "Стикер", video: "Видео", animation: "GIF", video_note: "Кружок", voice: "Голосовое", audio: "Аудио", document: "Файл" };
+
+function plainText(htmlText) {
+  const d = document.createElement("div");
+  d.innerHTML = (htmlText || "").replace(/<[^>]+>/g, "");
+  return d.textContent;
+}
+
+function preview(m) {
+  const t = plainText(m.text);
+  if (m.kind === "text") return t;
+  return `${KIND_LABEL[m.kind] || m.kind}${t ? ": " + t : ""}`;
+}
+
+// Безопасный рендер HTML от Telegram: только разрешённые теги
+const ALLOWED = new Set(["B", "STRONG", "I", "EM", "U", "INS", "S", "STRIKE", "DEL", "CODE", "PRE", "BLOCKQUOTE", "A", "SPAN", "TG-EMOJI", "BR"]);
+function safeHtml(htmlText) {
+  const doc = new DOMParser().parseFromString(`<div>${htmlText || ""}</div>`, "text/html");
+  const walk = (node) => {
+    const out = document.createDocumentFragment();
+    for (const ch of node.childNodes) {
+      if (ch.nodeType === Node.TEXT_NODE) { out.append(ch.textContent); continue; }
+      if (ch.nodeType !== Node.ELEMENT_NODE) continue;
+      if (!ALLOWED.has(ch.tagName) || ch.tagName === "TG-EMOJI") { out.append(walk(ch)); continue; }
+      const el = document.createElement(ch.tagName === "SPAN" ? "span" : ch.tagName.toLowerCase());
+      if (ch.tagName === "A") {
+        const href = ch.getAttribute("href") || "";
+        if (/^(https?:|tg:)/i.test(href)) { el.href = href; el.target = "_blank"; el.rel = "noopener"; }
+      }
+      if (ch.tagName === "SPAN" && ch.classList.contains("tg-spoiler")) {
+        el.className = "tg-spoiler";
+        el.addEventListener("click", () => el.classList.add("open"));
+      }
+      el.append(walk(ch));
+      out.append(el);
+    }
+    return out;
+  };
+  return walk(doc.body.firstChild);
+}
+
+const timeOf = (ts) => new Date(ts * 1000).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+const dayOf = (ts) => new Date(ts * 1000).toLocaleDateString("ru-RU", { day: "numeric", month: "long" });
+
+async function loadDialogs() {
+  try {
+    const { dialogs } = await api("GET", "/api/admin/chats");
+    renderDialogs(dialogs);
+  } catch (e) { toast(e.message); }
+}
+
+function renderDialogs(dialogs) {
+  $("dialogs").replaceChildren(...(dialogs.length ? dialogs.map((d) =>
+    h("div", { class: "dialog", onclick: () => openChat(d.user_id) },
+      h("div", { class: "avatar" }, (d.name || "?").trim().charAt(0).toUpperCase()),
+      h("div", { class: "info" },
+        h("div", { class: "top" },
+          h("span", { class: "t" }, d.name, d.username ? h("span", { class: "muted", style: "font-weight:400" }, ` @${d.username}`) : null),
+          h("span", { class: "when" }, d.last.at > Date.now() / 1000 - 86400 ? timeOf(d.last.at) : dayOf(d.last.at))),
+        h("div", { class: "prev" },
+          h("span", {}, (d.last.out ? "Ты: " : "") + preview(d.last)),
+          d.blocked ? h("span", { class: "lock-badge" }, "заблокировал") : null,
+          d.unread ? h("span", { class: "count" }, String(d.unread)) : null))))
+    : [h("div", { class: "empty" }, "Пока никто не писал")]));
+}
+
+const chat = { uid: null, last: 0, timer: null, lastDay: null };
+
+function stopChatPolling() { clearInterval(chat.timer); chat.timer = null; }
+
+async function openChat(uid) {
+  chat.uid = uid; chat.last = 0; chat.lastDay = null;
+  $("chatMessages").replaceChildren();
+  showView("chat");
+  await pollChat(true);
+  stopChatPolling();
+  chat.timer = setInterval(() => pollChat(false), 4000);
+  $("chatText").focus();
+}
+
+async function pollChat(first) {
+  if (chat.uid == null) return;
+  let data;
+  try {
+    data = await api("GET", `/api/admin/chats/${chat.uid}?after=${chat.last}`);
+  } catch (e) { if (first) toast(e.message); return; }
+  const u = data.user;
+  $("chatName").textContent = u.name;
+  $("chatSub").textContent = [u.username ? "@" + u.username : `id ${u.user_id}`, u.blocked ? "заблокировал бота" : (u.in_chat ? "в спамблоке" : "")].filter(Boolean).join(" · ");
+  appendMessages(data.messages, first);
+}
+
+function appendMessages(list, force = false) {
+  if (!list.length) return;
+  const box = $("chatMessages");
+  const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 120;
+  for (const m of list) {
+    if (m.id <= chat.last) continue;
+    chat.last = m.id;
+    const day = dayOf(m.at);
+    if (day !== chat.lastDay) { chat.lastDay = day; box.append(h("div", { class: "day-sep" }, day)); }
+    box.append(messageBubble(m));
+  }
+  if (force || nearBottom) box.scrollTop = box.scrollHeight;
+}
+
+function messageBubble(m) {
+  const parts = [];
+  if (m.kind === "photo") parts.push(h("img", { class: "ph", src: m.file, onclick: () => window.open(m.file, "_blank") }));
+  else if (m.kind === "sticker") parts.push(media({ format: m.format, file: m.file, thumb: m.thumb }));
+  else if (m.kind === "video" || m.kind === "video_note") parts.push(h("video", { src: m.file, poster: m.thumb, controls: true, playsinline: true }));
+  else if (m.kind === "animation") parts.push(Object.assign(h("video", { src: m.file, poster: m.thumb, autoplay: true, loop: true, playsinline: true }), { muted: true }));
+  else if (m.kind === "voice" || m.kind === "audio") parts.push(h("audio", { src: m.file, controls: true, preload: "none" }));
+  else if (m.kind === "document") parts.push(h("a", { href: m.file, target: "_blank" }, "📎 ", m.file_name || "Файл"));
+  if (m.text && m.kind !== "sticker") parts.push(h("div", {}, safeHtml(m.text)));
+  return h("div", { class: "msg" + (m.out ? " out" : "") + (m.kind === "sticker" ? " sticker" : "") },
+    parts, h("div", { class: "time" }, timeOf(m.at)));
+}
+
+async function sendChat() {
+  const text = $("chatText").value.trim();
+  if (!text) return;
+  $("chatSend").disabled = true;
+  try {
+    const data = await api("POST", `/api/admin/chats/${chat.uid}/send`, { text });
+    $("chatText").value = "";
+    autoGrow();
+    appendMessages(data.messages, true);
+    haptic();
+  } catch (e) {
+    toast(e.message);
+  } finally {
+    $("chatSend").disabled = false;
+  }
+}
+function autoGrow() {
+  const t = $("chatText");
+  t.style.height = "auto";
+  t.style.height = Math.min(t.scrollHeight, 120) + "px";
+}
+$("chatText").addEventListener("input", autoGrow);
+$("chatText").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey && !/Android|iPhone|iPad/i.test(navigator.userAgent)) { e.preventDefault(); sendChat(); }
+});
+$("chatSend").addEventListener("click", sendChat);
+$("chatPhoto").addEventListener("change", async (e) => {
+  const f = e.target.files[0];
+  e.target.value = "";
+  if (!f) return;
+  const fd = new FormData();
+  fd.append("text", $("chatText").value.trim());
+  fd.append("file", f, f.name);
+  const data = await withBusy("Отправляю фото…", () => api("POST", `/api/admin/chats/${chat.uid}/send`, fd)).catch(() => null);
+  if (data) { $("chatText").value = ""; autoGrow(); appendMessages(data.messages, true); }
+});
+
 // ---------- старт ----------
 if (!tg?.initData) {
   document.body.replaceChildren(h("div", { class: "view" },
@@ -807,6 +1056,11 @@ if (!tg?.initData) {
 } else {
   fillIcons();
   withBusy("Загружаю…", () => Promise.all([loadIcons(), loadHome()]))
-    .then(() => { if (location.hash === "#admin" && state.me.is_admin) openAdmin(); })
+    .then(async () => {
+      if (!state.me.is_admin) return;
+      const chat = location.hash.match(/^#chat:(\d+)$/);
+      if (location.hash === "#admin") openAdmin();
+      else if (chat) { state.adminTab = "chats"; await openAdmin(); openChat(Number(chat[1])); }
+    })
     .catch(() => {});
 }

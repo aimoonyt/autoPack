@@ -79,10 +79,47 @@
 
     <div class="tabs" id="adminTabs">
       <button data-tab="stats" class="tab active"><span data-ic="chart"></span> Статистика</button>
-      <button data-tab="sales" class="tab"><span data-ic="star"></span> Продажи</button>
+      <button data-tab="chats" class="tab"><span data-ic="chat"></span> Чаты <span id="unreadBadge" class="count hidden"></span></button>
+      <button data-tab="menu" class="tab"><span data-ic="home"></span> Меню</button>
       <button data-tab="post" class="tab"><span data-ic="megaphone"></span> Рассылка</button>
+      <button data-tab="sales" class="tab"><span data-ic="star"></span> Продажи</button>
       <button data-tab="look" class="tab"><span data-ic="palette"></span> Оформление</button>
     </div>
+
+    <section data-pane="chats" class="pane hidden">
+      <p class="muted small">Сюда падает всё, что пишут в «Спамблок». Тапни диалог, чтобы ответить.</p>
+      <div id="dialogs" class="list"></div>
+    </section>
+
+    <section data-pane="menu" class="pane hidden">
+      <div id="screenChips" class="chips"></div>
+      <div class="card">
+        <label class="lbl"><span data-ic="image"></span> Баннер (картинка сверху)</label>
+        <div id="scPhotoBox" class="photo-box"></div>
+        <div class="row tight">
+          <label class="btn"><span data-ic="upload"></span> Выбрать
+            <input id="scPhotoInput" type="file" accept="image/*" hidden>
+          </label>
+          <button id="scPhotoRemove" class="btn danger"><span data-ic="trash"></span> Убрать</button>
+        </div>
+      </div>
+      <label class="lbl"><span data-ic="edit"></span> Текст экрана</label>
+      <textarea id="scText" class="field text area" rows="12"></textarea>
+      <div id="scTextHint" class="muted small"></div>
+      <div id="orderLinks" class="hidden">
+        <label class="lbl"><span data-ic="link"></span> Ссылки кнопок заказа</label>
+        <input id="olBanner" class="field text" placeholder="Баннер: https://t.me/m/…">
+        <input id="olEmoji" class="field text gap" placeholder="Эмодзи: https://t.me/m/…">
+        <input id="olVideo" class="field text gap" placeholder="Видео: https://t.me/m/…">
+      </div>
+      <button id="scSave" class="btn primary wide"><span data-ic="check"></span> Сохранить</button>
+      <div class="row">
+        <button id="scTest" class="btn"><span data-ic="eyes"></span> Тест себе</button>
+        <button id="scCapture" class="btn"><span data-ic="copy"></span> Взять из сообщения</button>
+      </div>
+      <button id="scReset" class="btn danger wide">Вернуть стандартный текст</button>
+      <p class="muted small">{name} — имя юзера, {price} — цена доступа, {ic:star} — иконка из набора (список слотов во вкладке «Оформление»). Премиум-эмодзи проще всего так: оформи пост в Telegram как хочешь, нажми «Взять из сообщения» и перешли его боту — он сохранит всё как есть, с эмодзи и форматированием.</p>
+    </section>
 
     <section data-pane="stats" class="pane">
       <div id="statTiles" class="tiles"></div>
@@ -131,6 +168,7 @@
       <input id="bcBtnUrl" class="field text gap" placeholder="https://…">
 
       <button id="bcSave" class="btn primary wide"><span data-ic="check"></span> Сохранить</button>
+      <button id="bcCapture" class="btn wide"><span data-ic="copy"></span> Взять пост из сообщения</button>
       <div class="row">
         <button id="bcTest" class="btn"><span data-ic="eyes"></span> Тест себе</button>
         <button id="bcSend" class="btn"><span data-ic="megaphone"></span> Разослать сейчас</button>
@@ -141,8 +179,8 @@
     <section data-pane="look" class="pane hidden">
       <div class="card">
         <label class="lbl">Набор премиум-эмодзи для оформления</label>
-        <input id="iconPack" class="field text" placeholder="tgmacicons">
-        <div class="muted small">Имя или ссылка t.me/addemoji/…</div>
+        <input id="iconPack" class="field text" placeholder="XMAPKETemojis, XMAPKETsymbols">
+        <div class="muted small">Имена или ссылки t.me/addemoji/… через запятую. Иконка ищется сначала в первом наборе.</div>
         <button id="saveIconPack" class="btn primary wide"><span data-ic="check"></span> Применить</button>
       </div>
       <label class="switch-row">
@@ -154,6 +192,22 @@
       <p class="muted small">Подобраны автоматически. Тапни, чтобы выбрать другую.</p>
       <div id="slotList" class="list"></div>
     </section>
+  </main>
+
+  <!-- ===== Чат (спамблок) ===== -->
+  <main id="chat" class="view chat-view hidden">
+    <header class="chat-head">
+      <div class="chat-name" id="chatName"></div>
+      <div class="muted small" id="chatSub" style="margin:0"></div>
+    </header>
+    <div id="chatMessages" class="chat-messages"></div>
+    <div class="chat-input">
+      <label class="icon-btn attach"><span data-ic="image"></span>
+        <input id="chatPhoto" type="file" accept="image/*" hidden>
+      </label>
+      <textarea id="chatText" rows="1" placeholder="Сообщение…"></textarea>
+      <button id="chatSend" class="icon-btn send">➤</button>
+    </div>
   </main>
 
   <div id="sheet" class="sheet hidden">

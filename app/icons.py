@@ -46,6 +46,15 @@ SLOTS: dict[str, tuple[str, list[str]]] = {
     "image": ("Картинка", ["🖼", "📷"]),
     "palette": ("Оформление", ["🎨", "🖌"]),
     "sparkle": ("Приветствие", ["👋", "✨", "🎉"]),
+    "chat": ("Спамблок / чат", ["💬", "🗨", "📩"]),
+    "info": ("Инфа", ["ℹ️", "📌", "📖"]),
+    "order": ("Заказ", ["🛒", "🛍", "💳"]),
+    "back": ("Назад", ["◀️", "⬅️", "🔙"]),
+    "home": ("Меню", ["🏠", "🏡"]),
+    "emoji": ("Эмодзи", ["😎", "😀", "🙂"]),
+    "video": ("Видео", ["🎬", "📹", "🎥"]),
+    "down": ("Стрелка вниз", ["👇", "⬇️"]),
+    "fire": ("Огонь", ["🔥", "💥"]),
 }
 
 TTL = 3600
@@ -64,6 +73,7 @@ class Icons:
         self.by_id: dict[str, dict] = {}
         self.resolved: dict[str, dict] = {}  # slot -> item
         self.custom_in_bot = True
+        self.errors: list[str] = []
         self._fetched = 0.0
 
     async def refresh(self, force: bool = False) -> None:
@@ -73,21 +83,26 @@ class Icons:
         if force or name != self.pack_name or time.time() - self._fetched > TTL:
             self.pack_name = name
             self.items = []
-            if name:
+            self.errors = []
+            # можно несколько наборов через запятую или пробел, первые в приоритете
+            for one in [n for n in re.split(r"[\s,]+", name) if n]:
+                one = one.rstrip("/").rsplit("/", 1)[-1]
                 try:
-                    ss = await tg(self.bot.get_sticker_set, name=name)
-                    self.items = [
+                    ss = await tg(self.bot.get_sticker_set, name=one)
+                    self.items += [
                         {
                             "id": s.custom_emoji_id,
                             "emoji": s.emoji or "",
                             "format": sticker_format(s),
                             "file_id": s.file_id,
                             "thumb_id": s.thumbnail.file_id if s.thumbnail else None,
+                            "pack": one,
                         }
                         for s in ss.stickers if s.custom_emoji_id
                     ]
                 except TelegramBadRequest as e:
-                    log.warning("icon pack %s: %s", name, e.message)
+                    log.warning("icon pack %s: %s", one, e.message)
+                    self.errors.append(one)
             self._fetched = time.time()
             self.by_id = {i["id"]: i for i in self.items}
         overrides = settings.get("icon_map") or {}
@@ -114,11 +129,19 @@ class Icons:
         fb = html.escape(item["emoji"] or self.fallback(slot))
         return f'<tg-emoji emoji-id="{item["id"]}">{fb}</tg-emoji>'
 
+    def render(self, text: str, **values: str) -> str:
+        """Подставляет {ic:слот} и {name}/{price}/... в тексты экранов."""
+        text = _PLACEHOLDER.sub(lambda m: self.e(m.group(1)) if m.group(1) in SLOTS else m.group(0), text)
+        for key, value in values.items():
+            text = text.replace("{" + key + "}", value)
+        return text
+
     def button_id(self, slot: str) -> str | None:
         item = self.resolved.get(slot)
         return item["id"] if item and self.custom_in_bot else None
 
 
+_PLACEHOLDER = re.compile(r"\{ic:([a-z_]+)\}")
 _TG_EMOJI = re.compile(r"<tg-emoji[^>]*>(.*?)</tg-emoji>", re.S)
 
 
@@ -126,7 +149,7 @@ def _strip_markup(markup):
     if not isinstance(markup, InlineKeyboardMarkup):
         return markup
     return InlineKeyboardMarkup(inline_keyboard=[
-        [b.model_copy(update={"icon_custom_emoji_id": None}) for b in row]
+        [b.model_copy(update={"icon_custom_emoji_id": None, "style": None}) for b in row]
         for row in markup.inline_keyboard
     ])
 
@@ -145,7 +168,7 @@ class CustomEmojiFallback(BaseRequestMiddleware):
                     update[field] = _TG_EMOJI.sub(r"\1", value)
             markup = getattr(method, "reply_markup", None)
             if isinstance(markup, InlineKeyboardMarkup) and any(
-                b.icon_custom_emoji_id for row in markup.inline_keyboard for b in row
+                b.icon_custom_emoji_id or b.style for row in markup.inline_keyboard for b in row
             ):
                 update["reply_markup"] = _strip_markup(markup)
             if not update:

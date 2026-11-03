@@ -4,7 +4,7 @@ import time
 
 from aiogram import BaseMiddleware, Bot, F, Router
 from aiogram.exceptions import TelegramBadRequest
-from aiogram.filters import Command, CommandObject, CommandStart
+from aiogram.filters import Command, CommandObject, CommandStart, Filter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import (
@@ -19,6 +19,7 @@ from aiogram.types import (
     WebAppInfo,
 )
 
+from . import screens
 from .config import Config
 from .db import DB
 from .icons import Icons
@@ -44,7 +45,7 @@ class TouchUser(BaseMiddleware):
     async def __call__(self, handler, event, data):
         user = data.get("event_from_user")
         if user and not user.is_bot:
-            await self.db.touch_user(user.id)
+            await self.db.touch_user(user.id, user.first_name, user.username)
         return await handler(event, data)
 
 
@@ -97,10 +98,55 @@ def help_text(i: Icons) -> str:
     )
 
 
+class InMode(Filter):
+    """Юзер в режиме чата (спамблок) или админ ловит пост для сохранения."""
+
+    def __init__(self, prefix: str):
+        self.prefix = prefix
+
+    async def __call__(self, m: Message, db: DB) -> bool:
+        if not m.from_user:
+            return False
+        return ((await db.get_user(m.from_user.id))["mode"] or "").startswith(self.prefix)
+
+
 @router.message(CommandStart())
+@router.message(Command("menu"))
+async def cmd_start(m: Message, state: FSMContext, db: DB, cfg: Config, icons: Icons) -> None:
+    await state.clear()
+    await db.set_mode(m.from_user.id, None)
+    await screens.send(m.bot, m.chat.id, "menu", db, icons, cfg, m.from_user.first_name)
+
+
 @router.message(Command("help"))
-async def cmd_start(m: Message, cfg: Config, icons: Icons) -> None:
+async def cmd_help(m: Message, cfg: Config, icons: Icons) -> None:
     await m.answer(help_text(icons), reply_markup=kb(app_button(cfg, icons)))
+
+
+@router.callback_query(F.data.startswith("nav:"))
+async def cb_nav(c: CallbackQuery, state: FSMContext, db: DB, cfg: Config, icons: Icons) -> None:
+    key = c.data[4:]
+    if key not in screens.SCREEN_LABELS:
+        await c.answer()
+        return
+    await state.clear()
+    await db.set_mode(c.from_user.id, "chat" if key == "chat" else None)
+    await c.answer()
+    await screens.navigate(c.message, key, db, icons, cfg, c.from_user.first_name)
+
+
+@router.callback_query(F.data == "pk:new")
+async def cb_pk_new(c: CallbackQuery, state: FSMContext, svc: PackService, icons: Icons) -> None:
+    await c.answer()
+    await state.set_state(NewPack.title)
+    limit = await svc.max_title(c.from_user.id)
+    await c.message.answer(f"{icons.e('edit')} Как назовём набор? (до {limit} символов)")
+
+
+@router.callback_query(F.data == "pk:list")
+async def cb_pk_list(c: CallbackQuery, db: DB, svc: PackService, cfg: Config, icons: Icons) -> None:
+    await c.answer()
+    await cmd_packs(c.message, db, svc, cfg, icons, user_id=c.from_user.id)
 
 
 @router.message(Command("id"))
@@ -188,13 +234,14 @@ async def packs_markup(db: DB, svc: PackService, cfg: Config, icons: Icons, user
 
 
 @router.message(Command("packs"))
-async def cmd_packs(m: Message, db: DB, svc: PackService, cfg: Config, icons: Icons) -> None:
-    if not await db.get_packs(m.from_user.id):
+async def cmd_packs(m: Message, db: DB, svc: PackService, cfg: Config, icons: Icons, user_id: int | None = None) -> None:
+    uid = user_id or m.from_user.id
+    if not await db.get_packs(uid):
         await m.answer("Наборов пока нет. Начни с /new Название", reply_markup=kb(app_button(cfg, icons)))
         return
     await m.answer(
         f"{icons.e('pack')} Твои наборы. Тыкни, чтобы новые стикеры летели туда:",
-        reply_markup=await packs_markup(db, svc, cfg, icons, m.from_user.id),
+        reply_markup=await packs_markup(db, svc, cfg, icons, uid),
     )
 
 
@@ -314,6 +361,113 @@ async def cb_copy(c: CallbackQuery, db: DB, svc: PackService, icons: Icons) -> N
     await do_copy(c.message, db, svc, icons, c.from_user.id, item["set_name"])
 
 
+# --- админ: «перешли пост — сохраню» ---
+
+@router.message(InMode("capture:"))
+async def on_capture(m: Message, db: DB, svc: PackService, cfg: Config, icons: Icons) -> None:
+    uid = m.from_user.id
+    target = (await db.get_user(uid))["mode"][len("capture:"):]
+    await db.set_mode(uid, None)
+    if not svc.is_admin(uid):
+        return
+    text = m.html_text if (m.text or m.caption) else ""
+    photo = m.photo[-1].file_id if m.photo else None
+    try:
+        if target == "broadcast":
+            from .broadcast import Broadcaster
+            settings = await db.get_settings()
+            post = settings["broadcast"]
+            post["text"] = text
+            if photo:
+                post["photo_file_id"] = photo
+            Broadcaster.validate(post)
+            await db.set_setting("broadcast", post)
+            await m.answer(f"{icons.e('check')} Сохранил как пост для рассылки. Вот так он будет выглядеть:")
+            from .broadcast import post_markup
+            if post.get("photo_file_id"):
+                await m.answer_photo(post["photo_file_id"], caption=post["text"] or None, reply_markup=post_markup(post))
+            else:
+                await m.answer(post["text"], reply_markup=post_markup(post))
+        elif target.startswith("screen:") and target[7:] in screens.SCREEN_LABELS:
+            key = target[7:]
+            if not text:
+                raise ValueError("В сообщении нет текста")
+            await screens.save_screen(db, key, text, photo if photo else False)
+            await m.answer(f"{icons.e('check')} Сохранил экран «{screens.SCREEN_LABELS[key]}». Вот так он выглядит:")
+            await screens.send(m.bot, m.chat.id, key, db, icons, cfg, m.from_user.first_name)
+    except ValueError as e:
+        await m.answer(f"{icons.e('warning')} Не сохранил: {html.escape(str(e))}")
+    except TelegramBadRequest as e:
+        await m.answer(f"{icons.e('warning')} Сохранил, но Telegram не смог это показать: {html.escape(e.message)}")
+
+
+# --- спамблок: всё, что пишет юзер, уходит админу в мини-апку ---
+
+CHAT_NOTIFY_COOLDOWN = 60
+_last_notify: dict[int, float] = {}
+
+
+def extract_message(m: Message) -> dict | None:
+    caption = m.html_text if (m.text or m.caption) else None
+    if m.text:
+        return {"kind": "text", "text": caption}
+    if m.photo:
+        return {"kind": "photo", "text": caption, "file_id": m.photo[-1].file_id}
+    if m.sticker:
+        st = m.sticker
+        return {"kind": "sticker", "text": st.emoji, "file_id": st.file_id,
+                "thumb_id": st.thumbnail.file_id if st.thumbnail else None, "fmt": sticker_format(st)}
+    for kind in ("video", "animation", "video_note"):
+        obj = getattr(m, kind)
+        if obj:
+            return {"kind": kind, "text": caption, "file_id": obj.file_id,
+                    "thumb_id": obj.thumbnail.file_id if obj.thumbnail else None}
+    for kind in ("voice", "audio", "document"):
+        obj = getattr(m, kind)
+        if obj:
+            return {"kind": kind, "text": caption, "file_id": obj.file_id,
+                    "file_name": getattr(obj, "file_name", None)}
+    return None
+
+
+PREVIEW = {"photo": "Фото", "sticker": "Стикер", "video": "Видео", "animation": "GIF",
+           "video_note": "Кружок", "voice": "Голосовое", "audio": "Аудио", "document": "Файл"}
+
+
+@router.message(InMode("chat"))
+async def on_chat(m: Message, bot: Bot, db: DB, svc: PackService, cfg: Config, icons: Icons) -> None:
+    data = extract_message(m)
+    if not data:
+        await m.reply("Такое не передать, отправь текстом, фото, видео или голосовым.")
+        return
+    uid = m.from_user.id
+    await db.add_message(uid, False, **data)
+    await react(m, "✍")
+    now = time.monotonic()
+    if now - _last_notify.get(uid, 0) < CHAT_NOTIFY_COOLDOWN:
+        return
+    _last_notify[uid] = now
+    who = html.escape(m.from_user.full_name) + (f" (@{m.from_user.username})" if m.from_user.username else "")
+    preview = data["text"] if data["kind"] == "text" else f"[{PREVIEW[data['kind']]}] {data.get('text') or ''}"
+    if len(preview) > 300:
+        preview = preview[:300] + "…"
+    markup = kb(app_button(cfg, icons, "Открыть чат", f"#chat:{uid}"))
+    for admin_id in svc.admin_ids:
+        if admin_id == uid:
+            continue
+        try:
+            await bot.send_message(
+                admin_id,
+                f"{icons.e('chat')} <b>Спамблок</b> — пишет {who}\n\n<blockquote>{preview}</blockquote>",
+                reply_markup=markup,
+            )
+        except TelegramBadRequest:
+            # превью могло порезать HTML-тег — шлём без него
+            await bot.send_message(admin_id, f"{icons.e('chat')} <b>Спамблок</b> — пишет {who}", reply_markup=markup)
+        except Exception:  # noqa: BLE001
+            log.exception("notify admin")
+
+
 # --- приём стикеров и картинок ---
 
 async def ingest(
@@ -418,5 +572,10 @@ async def on_image_doc(m: Message, bot: Bot, db: DB, svc: PackService, cfg: Conf
 @router.message()
 async def fallback(m: Message, cfg: Config, icons: Icons) -> None:
     await m.answer(
-        "Кидай стикеры или картинки. /help — что я умею.", reply_markup=kb(app_button(cfg, icons))
+        f"{icons.e('chat')} Хочешь написать мне — зайди в «Спамблок».\n"
+        f"{icons.e('pack')} Кинь стикер или картинку — положу в набор.",
+        reply_markup=kb(
+            [btn(icons, "chat", "Спамблок", callback_data="nav:chat")],
+            [btn(icons, "home", "Меню", callback_data="nav:menu")],
+        ),
     )

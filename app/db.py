@@ -52,6 +52,21 @@ CREATE TABLE IF NOT EXISTS payments (
     refunded   INTEGER NOT NULL DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS messages (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL,
+    outgoing   INTEGER NOT NULL,         -- 1 = ответ админа, 0 = от юзера
+    kind       TEXT NOT NULL,            -- text/photo/sticker/video/animation/voice/video_note/audio/document
+    text       TEXT,                     -- HTML
+    file_id    TEXT,
+    thumb_id   TEXT,
+    fmt        TEXT,                     -- формат стикера
+    file_name  TEXT,
+    created_at INTEGER NOT NULL,
+    read       INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS messages_user ON messages(user_id, id);
+
 CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -67,13 +82,16 @@ MIGRATIONS = {
     "users": {
         "created_at": "INTEGER",
         "blocked": "INTEGER NOT NULL DEFAULT 0",
+        "first_name": "TEXT",
+        "username": "TEXT",
+        "mode": "TEXT",  # NULL — обычный режим, chat — спамблок, capture:<цель> — админ ловит пост
     },
 }
 
 DEFAULT_SETTINGS: dict[str, Any] = {
     "price": 15,
     "suffix": " || @stikcerpack_bot by @xmapket",
-    "icon_pack": "tgmacicons",
+    "icon_pack": "XMAPKETemojis, XMAPKETsymbols",
     "icon_map": {},
     "bot_custom_emoji": True,
     "broadcast": {
@@ -106,6 +124,11 @@ class DB:
                 if col not in existing:
                     await self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
         await self.conn.execute("UPDATE packs SET base_title=title WHERE base_title IS NULL")
+        # переезд с дефолтного набора иконок первой версии на наборы XMAPKET
+        await self.conn.execute(
+            "UPDATE settings SET value=? WHERE key='icon_pack' AND value=?",
+            (json.dumps(DEFAULT_SETTINGS["icon_pack"]), json.dumps("tgmacicons")),
+        )
         await self.conn.commit()
 
     async def close(self) -> None:
@@ -171,11 +194,18 @@ class DB:
             row = await self._one("SELECT * FROM users WHERE user_id=?", user_id)
         return row
 
-    async def touch_user(self, user_id: int) -> None:
-        """Юзер что-то написал: заводим, и если был помечен как заблокировавший — снимаем."""
+    async def touch_user(self, user_id: int, first_name: str | None = None, username: str | None = None) -> None:
+        """Юзер что-то написал: заводим, обновляем имя, снимаем пометку «заблокировал»."""
         user = await self.get_user(user_id)
-        if user["blocked"]:
-            await self._exec("UPDATE users SET blocked=0 WHERE user_id=?", user_id)
+        if user["blocked"] or user["first_name"] != first_name or user["username"] != username:
+            await self._exec(
+                "UPDATE users SET blocked=0, first_name=?, username=? WHERE user_id=?",
+                first_name, username, user_id,
+            )
+
+    async def set_mode(self, user_id: int, mode: str | None) -> None:
+        await self.get_user(user_id)
+        await self._exec("UPDATE users SET mode=? WHERE user_id=?", mode, user_id)
 
     async def set_blocked(self, user_id: int) -> None:
         await self._exec("UPDATE users SET blocked=1 WHERE user_id=?", user_id)
@@ -272,6 +302,36 @@ class DB:
             "stars": (await one("SELECT COALESCE(SUM(amount),0) c FROM payments WHERE refunded=0"))["c"],
             "payments": (await one("SELECT COUNT(*) c FROM payments WHERE refunded=0"))["c"],
         }
+
+    # --- чат (спамблок) ---
+    async def add_message(self, user_id: int, outgoing: bool, kind: str, text: str | None = None,
+                          file_id: str | None = None, thumb_id: str | None = None,
+                          fmt: str | None = None, file_name: str | None = None) -> int:
+        return await self._exec(
+            "INSERT INTO messages(user_id, outgoing, kind, text, file_id, thumb_id, fmt, file_name, created_at, read)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?)",
+            user_id, int(outgoing), kind, text, file_id, thumb_id, fmt, file_name, int(time.time()), int(outgoing),
+        )
+
+    async def get_messages(self, user_id: int, after: int = 0, limit: int = 200) -> list[dict]:
+        rows = await self._all(
+            "SELECT * FROM messages WHERE user_id=? AND id>? ORDER BY id DESC LIMIT ?", user_id, after, limit
+        )
+        return rows[::-1]
+
+    async def mark_read(self, user_id: int) -> None:
+        await self._exec("UPDATE messages SET read=1 WHERE user_id=? AND read=0", user_id)
+
+    async def dialogs(self) -> list[dict]:
+        return await self._all(
+            "SELECT m.*, u.first_name, u.username, u.blocked,"
+            " (SELECT COUNT(*) FROM messages x WHERE x.user_id=m.user_id AND x.read=0) AS unread"
+            " FROM messages m JOIN (SELECT user_id, MAX(id) mid FROM messages GROUP BY user_id) t ON t.mid=m.id"
+            " LEFT JOIN users u ON u.user_id=m.user_id ORDER BY m.id DESC"
+        )
+
+    async def unread_total(self) -> int:
+        return (await self._one("SELECT COUNT(*) c FROM messages WHERE read=0"))["c"]
 
     # --- settings ---
     async def get_settings(self) -> dict:

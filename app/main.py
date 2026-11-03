@@ -16,6 +16,7 @@ from .service import PackService
 from .web import build_app
 
 COMMANDS = [
+    BotCommand(command="start", description="Главное меню"),
     BotCommand(command="new", description="Новый набор"),
     BotCommand(command="packs", description="Мои наборы / куда добавлять"),
     BotCommand(command="stop", description="Перестать добавлять"),
@@ -48,7 +49,7 @@ async def main() -> None:
     dp["cfg"] = cfg
     dp["icons"] = icons
 
-    runner = web.AppRunner(build_app(bot, db, svc, icons, caster, cfg.bot_token))
+    runner = web.AppRunner(build_app(bot, db, svc, icons, caster, cfg.bot_token, cfg))
     await runner.setup()
     await web.TCPSite(runner, cfg.host, cfg.port).start()
     logging.info("web on %s:%s, admins: %s", cfg.host, cfg.port, sorted(cfg.admin_ids))

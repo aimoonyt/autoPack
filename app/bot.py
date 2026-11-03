@@ -13,6 +13,7 @@ from aiogram.types import (
     InlineKeyboardMarkup,
     InputSticker,
     LabeledPrice,
+    MenuButtonWebApp,
     Message,
     PreCheckoutQuery,
     ReactionTypeEmoji,
@@ -114,6 +115,16 @@ class InMode(Filter):
 @router.message(Command("menu"))
 async def cmd_start(m: Message, state: FSMContext, db: DB, cfg: Config, icons: Icons) -> None:
     await state.clear()
+    if cfg.webapp_url:
+        # Telegram кеширует кнопку «Наборы» для каждого чата — после смены адреса
+        # (новый туннель) она открывала старый. Ставим её заново именно в этом чате.
+        try:
+            await m.bot.set_chat_menu_button(
+                chat_id=m.chat.id,
+                menu_button=MenuButtonWebApp(text="Наборы", web_app=WebAppInfo(url=cfg.webapp_url)),
+            )
+        except TelegramBadRequest as e:
+            log.warning("menu button for %s: %s", m.chat.id, e.message)
     await db.set_mode(m.from_user.id, None)
     await screens.send(m.bot, m.chat.id, "menu", db, icons, cfg, m.from_user.first_name)
 

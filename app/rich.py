@@ -6,7 +6,7 @@
     [[                     — начало плашки: строки внутри по центру
     ...
     ]]                     — конец плашки
-    [banner]               — сюда встанет баннер (иначе он идёт первым)
+    (баннер всегда идёт самым первым блоком; строка [banner] просто пропускается)
     ---                    — разделитель
     > текст                — цитата
     ~ текст                — мелкая подпись снизу
@@ -154,8 +154,7 @@ def build(text: str, photo_file_id: str | None) -> InputRichMessage:
             blocks.append(InputRichBlockPhoto(photo=InputMediaPhoto(media=photo_file_id)))
         banner_used = True
 
-    if "[banner]" not in text:
-        banner()
+    banner()  # картинка всегда в самом верху
     for raw in _blockquotes_to_boxes(text).split("\n"):
         line = raw.rstrip()
         stripped = line.strip()

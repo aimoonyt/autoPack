@@ -41,12 +41,11 @@ DEFAULT_ORDER_LINKS = {
     "video": "https://t.me/m/y-vh5NYEZmUy",
 }
 
-# Разметка — см. app/rich.py: «# » заголовок в плашке, [[ ]] плашка по центру, [banner] место баннера.
+# Разметка — см. app/rich.py: «# » заголовок в плашке, [[ ]] плашка по центру. Баннер всегда сверху.
 DEFAULT_TEXTS = {
     # как Absolute Cinema: баннер, строки «иконка + поле: значение»
     # баннер сверху как у Absolute Cinema, дальше плашки как у BLUEBLACK
     "menu": (
-        "[banner]\n"
         "# {big:XMAPKET}\n"
         "[[\n"
         "<i>Добро пожаловать, {name}!</i> {xm}\n"
@@ -73,7 +72,6 @@ DEFAULT_TEXTS = {
         "{ic:upload} Кидай стикеры, фото, картинки — можно пачкой\n"
         "{ic:check} Готово — набор в Telegram, ссылка у тебя\n"
         "]]\n"
-        "[banner]\n"
         "# {big:EDITOR}\n"
         "[[\n"
         "{ic:edit} Порядок, эмодзи, название, удаление\n"
@@ -88,7 +86,6 @@ DEFAULT_TEXTS = {
         "{ic:image} Текст, фото, голосовые, видео, стикеры\n"
         "{ic:check} Ответ придёт в этот чат {xm}\n"
         "]]\n"
-        "[banner]\n"
         "~ Выйти из чата — «Назад в меню»"
     ),
     "info": (
@@ -98,7 +95,6 @@ DEFAULT_TEXTS = {
         "{ic:emoji} <a href=\"https://t.me/m/F4b0iYCwZmYy\">Заказать эмодзи</a>\n"
         "{ic:video} <a href=\"https://t.me/m/y-vh5NYEZmUy\">Заказать видео</a>\n"
         "]]\n"
-        "[banner]\n"
         "# {big:PRICE}\n"
         "[[\n"
         "<b>Эмодзи шаблонные</b>\n"
@@ -130,7 +126,6 @@ DEFAULT_TEXTS = {
         "{ic:emoji} <b>Эмодзи</b> — шаблонные и кастомные\n"
         "{ic:video} <b>Видео</b> — анимации и ролики\n"
         "]]\n"
-        "[banner]\n"
         "~ Жми кнопку — откроется чат с готовым сообщением"
     ),
 }

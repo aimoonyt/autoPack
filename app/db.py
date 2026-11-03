@@ -88,6 +88,8 @@ MIGRATIONS = {
     },
 }
 
+SCREENS_VERSION = 2
+
 DEFAULT_SETTINGS: dict[str, Any] = {
     "price": 15,
     "suffix": " || @stikcerpack_bot by @xmapket",
@@ -134,6 +136,21 @@ class DB:
             "UPDATE settings SET value=? WHERE key='icon_pack' AND value=?",
             (json.dumps(DEFAULT_SETTINGS["icon_pack"]), json.dumps("XMAPKETemojis, XMAPKETsymbols")),
         )
+        # тексты экранов по умолчанию сильно поменялись — старые сохранённые сбрасываем, баннеры оставляем
+        row = await self._one("SELECT value FROM settings WHERE key='screens_version'")
+        if not row or json.loads(row["value"]) < SCREENS_VERSION:
+            stored = await self._one("SELECT value FROM settings WHERE key='screens'")
+            if stored:
+                screens = json.loads(stored["value"])
+                for scr in screens.values():
+                    scr.pop("text", None)
+                await self.conn.execute(
+                    "UPDATE settings SET value=? WHERE key='screens'", (json.dumps(screens, ensure_ascii=False),)
+                )
+            await self.conn.execute(
+                "INSERT INTO settings(key, value) VALUES ('screens_version', ?)"
+                " ON CONFLICT(key) DO UPDATE SET value=excluded.value", (json.dumps(SCREENS_VERSION),)
+            )
         await self.conn.commit()
 
     async def close(self) -> None:

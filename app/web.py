@@ -366,7 +366,7 @@ class Api:
             "weekdays": WEEKDAYS,
             "icon_errors": self.icons.errors,
             "app_icon_errors": self.app_icons.errors,
-            "letters": "".join(sorted((settings.get("letters") or {}).keys())),
+            "letters": "".join(sorted(self.icons.letters.keys())),
             "emoji_rejected_at": int(STRIPPED["at"]) or None,
             "heading_letters": screens.HEADING_LETTERS,
             "accent_errors": self.icons.accent_errors,

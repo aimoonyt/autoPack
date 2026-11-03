@@ -149,9 +149,18 @@ class Icons:
                 if slot in self.resolved or overrides.get(slot) == "none" or not spare:
                     continue
                 self.resolved[slot] = spare.pop(0)
-        self.letters = {k: v for k, v in (settings.get("letters") or {}).items() if v}
+        # буквы, которые удалось узнать по эмодзи-аналогу (🇦, 🅰, Ⓐ…), + то, чему научил админ (в приоритете)
+        self.letters = {**self._auto_letters(), **{k: v for k, v in (settings.get("letters") or {}).items() if v}}
         letter_set = set(self.letters.values())
         self.accent_pool = [i for i in self.accent if i["id"] not in letter_set]
+
+    def _auto_letters(self) -> dict[str, str]:
+        found: dict[str, str] = {}
+        for item in self.accent:
+            ch = _letter_of(item["emoji"])
+            if ch and ch not in found:
+                found[ch] = item["id"]
+        return found
 
     def big(self, text: str) -> str:
         """Заголовок буквами-эмодзи (как WELLCOME в переходнике). Нет букв — жирный капс."""
@@ -204,6 +213,20 @@ class Icons:
     def button_id(self, slot: str) -> str | None:
         item = self.resolved.get(slot)
         return item["id"] if item and self.custom_in_bot else None
+
+
+def _letter_of(emoji: str) -> str | None:
+    """Буква по эмодзи-аналогу, если набор букв размечен 🇦/🅰/Ⓐ/1️⃣."""
+    e = (emoji or "").replace("\ufe0f", "").replace("\u20e3", "")
+    if len(e) != 1:
+        return None
+    cp = ord(e)
+    for base, start in ((0x1F1E6, "A"), (0x1F170, "A"), (0x1F130, "A"), (0x24B6, "A"), (0x1F150, "A")):
+        if base <= cp < base + 26:
+            return chr(ord(start) + cp - base)
+    if e.isdigit():
+        return e
+    return None
 
 
 _PLACEHOLDER = re.compile(r"\{ic:([a-z_]+)\}")

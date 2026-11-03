@@ -4,6 +4,11 @@
 set -euo pipefail
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$APP_DIR"
+# если ставили через git clone — подтягиваем свежий код
+if [ -d .git ]; then
+    git config --global --add safe.directory "$APP_DIR" 2>/dev/null || true
+    git pull --ff-only
+fi
 sed -i 's/\r$//' .env
 .venv/bin/pip install -q -r requirements.txt
 chown -R autopack:autopack "$APP_DIR"

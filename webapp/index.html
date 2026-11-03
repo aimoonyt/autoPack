@@ -7,50 +7,153 @@
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/lottie-web/5.12.2/lottie_light.min.js"></script>
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/style.css?v={{v}}">
 </head>
 <body>
+  <!-- ===== Главная ===== -->
   <main id="home" class="view">
-    <header class="bar"><h1>Мои наборы</h1></header>
+    <header class="bar">
+      <h1><span data-ic="pack"></span> Мои наборы</h1>
+      <button id="adminBtn" class="icon-btn hidden" title="Админка"><span data-ic="settings"></span></button>
+    </header>
     <div id="pending" class="note hidden"></div>
     <div id="packs" class="packs"></div>
-    <button id="newPackBtn" class="btn primary wide">＋ Новый набор</button>
+    <button id="newPackBtn" class="btn primary wide"><span data-ic="add"></span> Новый набор</button>
 
     <section class="section">
       <div class="section-head">
-        <h2>Входящие <span id="inboxCount" class="muted"></span></h2>
+        <h2><span data-ic="inbox"></span> Входящие <span id="inboxCount" class="muted"></span></h2>
         <button id="inboxSelectBtn" class="link">Выбрать</button>
       </div>
       <p class="muted small">Стикеры, которые ты кинул боту без активного набора.</p>
       <div id="inbox" class="grid"></div>
       <div id="inboxActions" class="actions hidden">
         <button id="inboxToPack" class="btn primary">В набор</button>
-        <button id="inboxDelete" class="btn danger">Удалить</button>
+        <button id="inboxDelete" class="btn danger"><span data-ic="trash"></span> Удалить</button>
       </div>
     </section>
   </main>
 
+  <!-- ===== Набор ===== -->
   <main id="pack" class="view hidden">
     <header class="bar">
       <input id="packTitle" class="title-input" maxlength="64" enterkeyhint="done">
     </header>
-    <div class="pack-meta">
-      <span id="packCount" class="muted"></span>
-      <button id="packOpen" class="link">Открыть в Telegram ↗</button>
+    <div id="titleHint" class="muted small"></div>
+
+    <div id="accessCard" class="card premium hidden">
+      <div class="card-title"><span data-ic="lock"></span> К названию добавляется подпись</div>
+      <div id="accessText" class="muted small"></div>
+      <button id="buyBtn" class="btn primary wide"></button>
     </div>
+
+    <div class="card">
+      <div class="link-row">
+        <span data-ic="link"></span>
+        <span id="packLinkText" class="link-text"></span>
+      </div>
+      <div class="row tight">
+        <button id="packOpen" class="btn">Открыть ↗</button>
+        <button id="packLinkEdit" class="btn"><span data-ic="edit"></span> Сменить ссылку</button>
+      </div>
+    </div>
+
     <label class="switch-row">
       <span>Бот добавляет новые стикеры сюда</span>
       <input id="packActive" type="checkbox" class="switch">
     </label>
-    <p class="muted small">Зажми стикер и тащи, чтобы поменять порядок. Тап — эмодзи и удаление.</p>
+    <p class="muted small"><span id="packCount"></span> · зажми стикер и тащи, чтобы поменять порядок. Тап — эмодзи и удаление.</p>
     <div id="stickers" class="grid"></div>
     <div class="row">
-      <button id="addFromInbox" class="btn">＋ Из входящих</button>
-      <label class="btn">⬆ Загрузить файл
+      <button id="addFromInbox" class="btn"><span data-ic="inbox"></span> Из входящих</button>
+      <label class="btn"><span data-ic="upload"></span> Загрузить
         <input id="uploadInput" type="file" accept="image/*,.tgs,.webm" multiple hidden>
       </label>
     </div>
-    <button id="deletePack" class="btn danger wide">Удалить набор</button>
+    <button id="deletePack" class="btn danger wide"><span data-ic="trash"></span> Удалить набор</button>
+  </main>
+
+  <!-- ===== Админка ===== -->
+  <main id="admin" class="view hidden">
+    <header class="bar"><h1><span data-ic="settings"></span> Админка</h1></header>
+
+    <div class="tabs" id="adminTabs">
+      <button data-tab="stats" class="tab active"><span data-ic="chart"></span> Статистика</button>
+      <button data-tab="sales" class="tab"><span data-ic="star"></span> Продажи</button>
+      <button data-tab="post" class="tab"><span data-ic="megaphone"></span> Рассылка</button>
+      <button data-tab="look" class="tab"><span data-ic="palette"></span> Оформление</button>
+    </div>
+
+    <section data-pane="stats" class="pane">
+      <div id="statTiles" class="tiles"></div>
+      <h2 class="sub"><span data-ic="money"></span> Последние оплаты</h2>
+      <div id="payments" class="list"></div>
+    </section>
+
+    <section data-pane="sales" class="pane hidden">
+      <div class="card">
+        <label class="lbl">Цена доступа к одному набору, ⭐</label>
+        <input id="setPrice" class="field text" type="number" min="1" max="10000" inputmode="numeric">
+        <label class="lbl">Подпись, которая добавляется к названию без доступа</label>
+        <input id="setSuffix" class="field text" maxlength="40">
+        <div id="suffixHint" class="muted small"></div>
+        <button id="saveSales" class="btn primary wide"><span data-ic="check"></span> Сохранить</button>
+      </div>
+      <p class="muted small">Новая подпись подтянется в старые наборы, когда их владелец откроет редактор. Доступ даёт: название без подписи (до 64 символов) и смену ссылки. Админы пользуются бесплатно.</p>
+    </section>
+
+    <section data-pane="post" class="pane hidden">
+      <label class="switch-row">
+        <span>Рассылать раз в неделю</span>
+        <input id="bcEnabled" type="checkbox" class="switch">
+      </label>
+      <div class="row tight">
+        <select id="bcWeekday" class="field text"></select>
+        <select id="bcHour" class="field text"></select>
+      </div>
+      <div id="bcSchedule" class="muted small"></div>
+
+      <label class="lbl">Текст поста (HTML Telegram: &lt;b&gt;, &lt;i&gt;, &lt;a href&gt;, &lt;tg-emoji&gt;…)</label>
+      <textarea id="bcText" class="field text area" rows="7"></textarea>
+      <div id="bcTextHint" class="muted small"></div>
+
+      <label class="lbl"><span data-ic="image"></span> Картинка</label>
+      <div id="bcPhotoBox" class="photo-box"></div>
+      <div class="row tight">
+        <label class="btn"><span data-ic="upload"></span> Выбрать
+          <input id="bcPhotoInput" type="file" accept="image/*" hidden>
+        </label>
+        <button id="bcPhotoRemove" class="btn danger"><span data-ic="trash"></span> Убрать</button>
+      </div>
+
+      <label class="lbl"><span data-ic="link"></span> Кнопка под постом (необязательно)</label>
+      <input id="bcBtnText" class="field text" placeholder="Текст кнопки">
+      <input id="bcBtnUrl" class="field text gap" placeholder="https://…">
+
+      <button id="bcSave" class="btn primary wide"><span data-ic="check"></span> Сохранить</button>
+      <div class="row">
+        <button id="bcTest" class="btn"><span data-ic="eyes"></span> Тест себе</button>
+        <button id="bcSend" class="btn"><span data-ic="megaphone"></span> Разослать сейчас</button>
+      </div>
+      <div id="bcLast" class="muted small"></div>
+    </section>
+
+    <section data-pane="look" class="pane hidden">
+      <div class="card">
+        <label class="lbl">Набор премиум-эмодзи для оформления</label>
+        <input id="iconPack" class="field text" placeholder="tgmacicons">
+        <div class="muted small">Имя или ссылка t.me/addemoji/…</div>
+        <button id="saveIconPack" class="btn primary wide"><span data-ic="check"></span> Применить</button>
+      </div>
+      <label class="switch-row">
+        <span>Премиум-эмодзи в сообщениях и кнопках бота</span>
+        <input id="botCustomEmoji" type="checkbox" class="switch">
+      </label>
+      <p class="muted small">Telegram показывает премиум-эмодзи в сообщениях бота, только если у владельца бота есть Telegram Premium или у бота куплен юзернейм на Fragment. Иначе бот сам откатится на обычные эмодзи. В мини-апке иконки видны всегда.</p>
+      <h2 class="sub">Иконки по местам</h2>
+      <p class="muted small">Подобраны автоматически. Тапни, чтобы выбрать другую.</p>
+      <div id="slotList" class="list"></div>
+    </section>
   </main>
 
   <div id="sheet" class="sheet hidden">
@@ -61,6 +164,6 @@
   <div id="busy" class="busy hidden"><div class="spinner"></div><div id="busyText"></div></div>
   <div id="toast" class="toast hidden"></div>
 
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v={{v}}"></script>
 </body>
 </html>

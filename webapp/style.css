@@ -118,3 +118,50 @@ h2 { font-size: 17px; margin: 0; }
   z-index: 50; background: rgba(30,30,30,.92); color: #fff; padding: 9px 14px; border-radius: 12px;
   max-width: calc(100% - 32px); font-size: 14px;
 }
+
+/* ---------- иконки из набора премиум-эмодзи ---------- */
+.ic { display: inline-flex; width: 1.25em; height: 1.25em; vertical-align: -0.25em; align-items: center; justify-content: center; flex: none; }
+.ic .media { width: 100%; height: 100%; }
+.ic-text { font-size: 1em; line-height: 1; }
+h1 .ic, h2 .ic { width: 1.1em; height: 1.1em; }
+.bar { justify-content: space-between; }
+.bar h1 { display: flex; align-items: center; gap: 8px; }
+.icon-btn { background: var(--bg2); border: 0; border-radius: 12px; width: 40px; height: 40px; font-size: 20px; cursor: pointer; display: flex; align-items: center; justify-content: center; color: var(--text); }
+
+/* ---------- карточки ---------- */
+.card { background: var(--bg2); border-radius: var(--radius); padding: 12px; margin-bottom: 8px; }
+.card.premium { background: linear-gradient(135deg, rgba(255, 193, 7, .18), rgba(255, 112, 67, .12)), var(--bg2); }
+.card-title { font-weight: 600; display: flex; align-items: center; gap: 6px; }
+.card .btn { background: var(--bg); }
+.card .btn.primary { background: var(--btn); }
+.link-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; min-width: 0; }
+.link-text { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row.tight { margin-top: 6px; }
+.lock-badge { font-size: 12px; color: var(--hint); display: inline-flex; align-items: center; gap: 3px; }
+
+/* ---------- админка ---------- */
+.tabs { display: flex; gap: 6px; overflow-x: auto; margin: 0 -16px 12px; padding: 0 16px; scrollbar-width: none; }
+.tabs::-webkit-scrollbar { display: none; }
+.tab { flex: none; border: 0; border-radius: 10px; padding: 8px 12px; background: var(--bg2); color: var(--text); font: inherit; font-weight: 600; font-size: 14px; display: flex; align-items: center; gap: 5px; cursor: pointer; }
+.tab.active { background: var(--btn); color: var(--btn-text); }
+.tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.stat { background: var(--bg2); border-radius: var(--radius); padding: 12px; }
+.stat .v { font-size: 24px; font-weight: 700; display: flex; align-items: center; gap: 6px; }
+.stat .k { color: var(--hint); font-size: 13px; display: flex; align-items: center; gap: 4px; }
+h2.sub { font-size: 16px; margin: 20px 0 8px; display: flex; align-items: center; gap: 6px; }
+.lbl { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--hint); margin: 14px 0 6px; }
+.card .lbl:first-child { margin-top: 0; }
+.field.area { resize: vertical; min-height: 120px; font-family: inherit; line-height: 1.4; }
+.field.gap { margin-top: 6px; }
+select.field { appearance: none; -webkit-appearance: none; }
+.photo-box img { max-width: 100%; max-height: 220px; border-radius: 12px; display: block; }
+.pay { display: flex; align-items: center; gap: 10px; background: var(--bg2); border-radius: 12px; padding: 10px 12px; }
+.pay .info { flex: 1; min-width: 0; }
+.pay .t { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pay.refunded { opacity: .5; }
+.slot { display: flex; align-items: center; gap: 12px; background: var(--bg2); border-radius: 12px; padding: 10px 12px; cursor: pointer; }
+.slot .ic { width: 32px; height: 32px; font-size: 26px; }
+.slot .name { flex: 1; }
+.icon-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(52px, 1fr)); gap: 6px; }
+.icon-grid .tile { aspect-ratio: 1; }
+.icon-grid .tile.auto { font-size: 12px; color: var(--hint); text-align: center; }

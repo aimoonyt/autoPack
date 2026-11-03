@@ -1,4 +1,5 @@
 """HTTP API для мини-апки + раздача её статики."""
+import asyncio
 import hashlib
 import hmac
 import logging
@@ -9,18 +10,23 @@ from pathlib import Path
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest
+from aiogram.types import BufferedInputFile
 from aiogram.utils.web_app import safe_parse_webapp_init_data
 from aiohttp import web
 
+from .bot import invoice_args
+from .broadcast import WEEKDAYS, Broadcaster
 from .db import DB
+from .icons import SLOTS, Icons
 from .service import PackError, PackService, sticker_format
 
 log = logging.getLogger(__name__)
 
 WEBAPP_DIR = Path(__file__).resolve().parent.parent / "webapp"
+TASKS = web.AppKey("tasks", set)
 INIT_DATA_TTL = 7 * 24 * 3600
 MAX_UPLOAD = 10 * 1024 * 1024
-FILE_CACHE_SIZE = 400
+FILE_CACHE_SIZE = 600
 
 CONTENT_TYPES = {
     ".webp": "image/webp",
@@ -37,11 +43,12 @@ def json_error(status: int, message: str) -> web.Response:
 
 
 class Api:
-    def __init__(self, bot: Bot, db: DB, svc: PackService, token: str):
+    def __init__(self, bot: Bot, db: DB, svc: PackService, icons: Icons, caster: Broadcaster, token: str):
         self.bot = bot
         self.db = db
         self.svc = svc
-        self.token = token
+        self.icons = icons
+        self.caster = caster
         self._sign_key = hashlib.sha256(b"file-proxy:" + token.encode()).digest()
         self._files: OrderedDict[str, tuple[bytes, str]] = OrderedDict()
 
@@ -57,85 +64,103 @@ class Api:
     def user_id(self, request: web.Request) -> int:
         return request["user_id"]
 
+    def require_admin(self, request: web.Request) -> None:
+        if not self.svc.is_admin(self.user_id(request)):
+            raise web.HTTPForbidden(text='{"error":"Только для админа"}', content_type="application/json")
+
     async def owned_pack(self, request: web.Request) -> dict:
         pack = await self.db.get_pack(request.match_info["name"])
         if not pack or pack["owner_id"] != self.user_id(request):
-            raise web.HTTPNotFound(
-                text='{"error":"Набор не найден"}', content_type="application/json"
-            )
+            raise web.HTTPNotFound(text='{"error":"Набор не найден"}', content_type="application/json")
         return pack
 
+    def ser_media(self, file_id: str | None, thumb_id: str | None, fmt: str) -> dict:
+        return {"format": fmt, "file": self.furl(file_id), "thumb": self.furl(thumb_id)}
+
     def ser_inbox(self, item: dict) -> dict:
-        return {
-            "id": item["id"],
-            "format": item["format"],
-            "emoji": item["emoji"],
-            "file": self.furl(item["file_id"]),
-            "thumb": self.furl(item["thumb_file_id"]),
-        }
+        return {"id": item["id"], "emoji": item["emoji"],
+                **self.ser_media(item["file_id"], item["thumb_file_id"], item["format"])}
 
     async def ser_pack(self, pack: dict, full: bool, active_id: int | None) -> dict | None:
-        ss = await self.svc.get_set(pack["name"])
+        ss = await self.svc.get_set(pack)
         if ss is None:
             return None
-        if ss.title != pack["title"]:  # переименовали снаружи
-            await self.db.set_pack_title(pack["name"], ss.title)
         data = {
             "name": pack["name"],
-            "title": ss.title,
+            "title": pack["base_title"],
+            "full_title": ss.title,
             "link": self.svc.link(pack["name"]),
             "count": len(ss.stickers),
             "active": pack["id"] == active_id,
+            "access": self.svc.has_access(pack),
+            "max_title": await self.svc.max_title(pack["owner_id"], self.svc.has_access(pack)),
         }
         if ss.stickers:
             first = ss.stickers[0]
-            data["cover"] = {
-                "format": sticker_format(first),
-                "file": self.furl(first.file_id),
-                "thumb": self.furl(first.thumbnail.file_id if first.thumbnail else None),
-            }
+            data["cover"] = self.ser_media(
+                first.file_id, first.thumbnail.file_id if first.thumbnail else None, sticker_format(first)
+            )
         if full:
             emojis = await self.svc.emojis_for(ss)
             data["stickers"] = [
-                {
-                    "uid": s.file_unique_id,
-                    "format": sticker_format(s),
-                    "emojis": emojis[s.file_unique_id],
-                    "file": self.furl(s.file_id),
-                    "thumb": self.furl(s.thumbnail.file_id if s.thumbnail else None),
-                }
+                {"uid": s.file_unique_id, "emojis": emojis[s.file_unique_id],
+                 **self.ser_media(s.file_id, s.thumbnail.file_id if s.thumbnail else None, sticker_format(s))}
                 for s in ss.stickers
             ]
         return data
 
-    async def pack_response(self, request: web.Request, name: str) -> web.Response:
-        pack = await self.db.get_pack(name)
+    async def pack_response(self, request: web.Request, pack_id: int) -> web.Response:
+        pack = await self.db.get_pack_by_id(pack_id)
         user = await self.db.get_user(self.user_id(request))
         data = await self.ser_pack(pack, True, user["active_pack"]) if pack else None
         if data is None:
             return json_error(404, "Набор больше не существует")
         return web.json_response(data)
 
-    # --- handlers ---
+    # --- общие ---
     async def me(self, request: web.Request) -> web.Response:
         uid = self.user_id(request)
         user = await self.db.get_user(uid)
+        settings = await self.db.get_settings()
         packs = []
         for p in await self.db.get_packs(uid):
             data = await self.ser_pack(p, False, user["active_pack"])
             if data:
                 packs.append(data)
-        inbox = [self.ser_inbox(i) for i in await self.db.get_inbox(uid)]
         return web.json_response({
             "packs": packs,
-            "inbox": inbox,
+            "inbox": [self.ser_inbox(i) for i in await self.db.get_inbox(uid)],
             "bot": self.svc.bot_username,
             "pending_title": user["pending_title"],
+            "is_admin": self.svc.is_admin(uid),
+            "price": settings["price"],
+            "suffix": settings["suffix"],
+            "max_title": await self.svc.max_title(uid),
         })
 
+    async def icons_handler(self, request: web.Request) -> web.Response:
+        await self.icons.refresh()
+        slots = {}
+        for slot, (label, cands) in SLOTS.items():
+            item = self.icons.resolved.get(slot)
+            slots[slot] = {
+                "label": label,
+                "fallback": cands[0],
+                "icon": {"id": item["id"], **self.ser_media(item["file_id"], item["thumb_id"], item["format"])}
+                if item else None,
+            }
+        data = {"slots": slots}
+        if self.svc.is_admin(self.user_id(request)):
+            data["all"] = [
+                {"id": i["id"], "emoji": i["emoji"], **self.ser_media(i["file_id"], i["thumb_id"], i["format"])}
+                for i in self.icons.items
+            ]
+        return web.json_response(data)
+
+    # --- наборы ---
     async def get_pack(self, request: web.Request) -> web.Response:
         pack = await self.owned_pack(request)
-        return await self.pack_response(request, pack["name"])
+        return await self.pack_response(request, pack["id"])
 
     async def _inbox_inputs(self, uid: int, ids: list) -> tuple[list[int], list]:
         try:
@@ -155,19 +180,19 @@ class Api:
                 raise PackError("Выбери хотя бы один стикер из входящих")
             pack = await self.svc.create(uid, body.get("title", ""), inputs)
             await self.db.delete_inbox(uid, ids)
-        return await self.pack_response(request, pack["name"])
+        return await self.pack_response(request, pack["id"])
 
     async def update_pack(self, request: web.Request) -> web.Response:
         pack = await self.owned_pack(request)
         body = await request.json()
         if "title" in body:
-            await self.svc.set_title(pack["name"], body["title"])
-        return await self.pack_response(request, pack["name"])
+            await self.svc.set_title(pack, body["title"])
+        return await self.pack_response(request, pack["id"])
 
     async def delete_pack(self, request: web.Request) -> web.Response:
         pack = await self.owned_pack(request)
         async with self.svc.lock(self.user_id(request)):
-            await self.svc.delete_pack(pack["name"])
+            await self.svc.delete_pack(pack)
         return web.json_response({"ok": True})
 
     async def activate(self, request: web.Request) -> web.Response:
@@ -181,7 +206,7 @@ class Api:
             user = await self.db.get_user(uid)
             if user["active_pack"] == pack["id"]:
                 await self.db.set_active(uid, None)
-        return await self.pack_response(request, pack["name"])
+        return await self.pack_response(request, pack["id"])
 
     async def add_from_inbox(self, request: web.Request) -> web.Response:
         pack = await self.owned_pack(request)
@@ -193,9 +218,9 @@ class Api:
                 raise PackError("Нечего добавлять")
             # по одному, чтобы при ошибке на середине уже добавленные ушли из входящих
             for item_id, inp in zip(ids, inputs):
-                await self.svc.add(uid, pack["name"], [inp])
+                await self.svc.add(uid, pack, [inp])
                 await self.db.delete_inbox(uid, [item_id])
-        return await self.pack_response(request, pack["name"])
+        return await self.pack_response(request, pack["id"])
 
     async def upload(self, request: web.Request) -> web.Response:
         pack = await self.owned_pack(request)
@@ -216,8 +241,8 @@ class Api:
         fmt = {".tgs": "animated", ".webm": "video"}.get(ext, "static")
         async with self.svc.lock(uid):
             file_id = await self.svc.upload(uid, data, fmt, filename)
-            await self.svc.add(uid, pack["name"], [self.svc.make_input(file_id, fmt, emojis)])
-        return await self.pack_response(request, pack["name"])
+            await self.svc.add(uid, pack, [self.svc.make_input(file_id, fmt, emojis)])
+        return await self.pack_response(request, pack["id"])
 
     async def reorder(self, request: web.Request) -> web.Response:
         pack = await self.owned_pack(request)
@@ -226,8 +251,8 @@ class Api:
         if not isinstance(order, list) or not all(isinstance(x, str) for x in order):
             raise PackError("Кривой порядок")
         async with self.svc.lock(self.user_id(request)):
-            await self.svc.reorder(pack["name"], order)
-        return await self.pack_response(request, pack["name"])
+            await self.svc.reorder(pack, order)
+        return await self.pack_response(request, pack["id"])
 
     async def set_emojis(self, request: web.Request) -> web.Response:
         pack = await self.owned_pack(request)
@@ -235,16 +260,30 @@ class Api:
         emojis = body.get("emojis")
         if not isinstance(emojis, list) or not all(isinstance(x, str) for x in emojis):
             raise PackError("Кривой список эмодзи")
-        await self.svc.set_emojis(pack["name"], request.match_info["uid"], emojis)
-        return await self.pack_response(request, pack["name"])
+        await self.svc.set_emojis(pack, request.match_info["uid"], emojis)
+        return await self.pack_response(request, pack["id"])
 
     async def delete_sticker(self, request: web.Request) -> web.Response:
         pack = await self.owned_pack(request)
         async with self.svc.lock(self.user_id(request)):
-            alive = await self.svc.delete_sticker(pack["name"], request.match_info["uid"])
+            alive = await self.svc.delete_sticker(pack, request.match_info["uid"])
         if not alive:
             return web.json_response({"deleted_pack": True})
-        return await self.pack_response(request, pack["name"])
+        return await self.pack_response(request, pack["id"])
+
+    async def invoice(self, request: web.Request) -> web.Response:
+        pack = await self.owned_pack(request)
+        if self.svc.has_access(pack):
+            raise PackError("У этого набора уже есть доступ")
+        link = await self.bot.create_invoice_link(**await invoice_args(self.db, pack))
+        return web.json_response({"url": link})
+
+    async def change_link(self, request: web.Request) -> web.Response:
+        pack = await self.owned_pack(request)
+        body = await request.json()
+        async with self.svc.lock(self.user_id(request)):
+            await self.svc.change_link(pack, str(body.get("slug", "")))
+        return await self.pack_response(request, pack["id"])
 
     async def delete_inbox(self, request: web.Request) -> web.Response:
         uid = self.user_id(request)
@@ -253,6 +292,153 @@ class Api:
         await self.db.delete_inbox(uid, ids)
         return web.json_response({"inbox": [self.ser_inbox(i) for i in await self.db.get_inbox(uid)]})
 
+    # --- админка ---
+    async def admin_state(self, request: web.Request) -> web.Response:
+        self.require_admin(request)
+        settings = await self.db.get_settings()
+        post = settings["broadcast"]
+        nxt = self.caster.next_run(post)
+        payments = [
+            {"id": p["id"], "user_id": p["user_id"], "amount": p["amount"], "refunded": bool(p["refunded"]),
+             "created_at": p["created_at"], "pack": p["pack_title"] or p["pack_name"]}
+            for p in await self.db.recent_payments()
+        ]
+        return web.json_response({
+            "stats": await self.db.stats(),
+            "payments": payments,
+            "settings": {
+                "price": settings["price"],
+                "suffix": settings["suffix"],
+                "icon_pack": settings["icon_pack"],
+                "icon_map": settings["icon_map"],
+                "bot_custom_emoji": settings["bot_custom_emoji"],
+            },
+            "broadcast": {
+                **{k: post[k] for k in ("enabled", "text", "button_text", "button_url", "weekday", "hour",
+                                        "last_sent_at", "last_result")},
+                "photo": self.furl(post.get("photo_file_id")),
+                "next_run": int(nxt.timestamp()) if nxt else None,
+                "running": self.caster.progress,
+                "timezone": str(self.caster.tz),
+            },
+            "weekdays": WEEKDAYS,
+        })
+
+    async def admin_settings(self, request: web.Request) -> web.Response:
+        self.require_admin(request)
+        body = await request.json()
+        if "price" in body:
+            try:
+                price = int(body["price"])
+            except (TypeError, ValueError):
+                raise PackError("Цена — целое число")
+            if not 1 <= price <= 10000:
+                raise PackError("Цена от 1 до 10000 звёзд")
+            await self.db.set_setting("price", price)
+        if "suffix" in body:
+            suffix = str(body["suffix"])
+            if len(suffix) > 40:
+                raise PackError("Подпись максимум 40 символов, иначе под название места не останется")
+            await self.db.set_setting("suffix", suffix)
+        if "icon_pack" in body:
+            name = str(body["icon_pack"]).strip()
+            if "/" in name:
+                name = name.rstrip("/").rsplit("/", 1)[-1]  # вставили ссылку t.me/addemoji/...
+            await self.db.set_setting("icon_pack", name)
+        if "bot_custom_emoji" in body:
+            await self.db.set_setting("bot_custom_emoji", bool(body["bot_custom_emoji"]))
+        if "icon_map" in body and isinstance(body["icon_map"], dict):
+            clean = {k: str(v) for k, v in body["icon_map"].items() if k in SLOTS and v}
+            await self.db.set_setting("icon_map", clean)
+        await self.icons.refresh(force="icon_pack" in body)
+        return await self.admin_state(request)
+
+    async def admin_broadcast(self, request: web.Request) -> web.Response:
+        self.require_admin(request)
+        body = await request.json()
+        post = (await self.db.get_settings())["broadcast"]
+        for key in ("text", "button_text", "button_url"):
+            if key in body:
+                post[key] = str(body[key] or "").strip()
+        if "enabled" in body:
+            post["enabled"] = bool(body["enabled"])
+        if "weekday" in body:
+            post["weekday"] = max(0, min(6, int(body["weekday"])))
+        if "hour" in body:
+            post["hour"] = max(0, min(23, int(body["hour"])))
+        if body.get("remove_photo"):
+            post["photo_file_id"] = None
+        if post["enabled"] or post["text"] or post["photo_file_id"]:
+            try:
+                Broadcaster.validate(post)
+            except ValueError as e:
+                raise PackError(str(e))
+        await self.db.set_setting("broadcast", post)
+        return await self.admin_state(request)
+
+    async def admin_broadcast_photo(self, request: web.Request) -> web.Response:
+        self.require_admin(request)
+        uid = self.user_id(request)
+        reader = await request.multipart()
+        data, filename = None, "photo.jpg"
+        async for part in reader:
+            if part.name == "file":
+                filename = part.filename or filename
+                data = await part.read(decode=False)
+        if not data:
+            raise PackError("Файл не пришёл")
+        # Заливаем фотку админу в личку, чтобы получить file_id, и сразу удаляем сообщение
+        msg = await self.bot.send_photo(uid, BufferedInputFile(data, filename=filename),
+                                        caption="Картинка для рассылки сохранена", disable_notification=True)
+        post = (await self.db.get_settings())["broadcast"]
+        post["photo_file_id"] = msg.photo[-1].file_id
+        await self.db.set_setting("broadcast", post)
+        try:
+            await self.bot.delete_message(uid, msg.message_id)
+        except TelegramBadRequest:
+            pass
+        return await self.admin_state(request)
+
+    async def admin_broadcast_test(self, request: web.Request) -> web.Response:
+        self.require_admin(request)
+        post = (await self.db.get_settings())["broadcast"]
+        try:
+            Broadcaster.validate(post)
+        except ValueError as e:
+            raise PackError(str(e))
+        await self.caster.send_post(self.user_id(request), post)
+        return web.json_response({"ok": True})
+
+    async def admin_broadcast_send(self, request: web.Request) -> web.Response:
+        self.require_admin(request)
+        if self.caster.running:
+            raise PackError("Рассылка уже идёт")
+        post = (await self.db.get_settings())["broadcast"]
+        try:
+            Broadcaster.validate(post)
+        except ValueError as e:
+            raise PackError(str(e))
+        task = asyncio.create_task(self.caster.run())
+        request.app[TASKS].add(task)
+        task.add_done_callback(request.app[TASKS].discard)
+        return await self.admin_state(request)
+
+    async def admin_refund(self, request: web.Request) -> web.Response:
+        self.require_admin(request)
+        body = await request.json()
+        pay = await self.db.get_payment(int(body.get("id", 0)))
+        if not pay or pay["refunded"]:
+            raise PackError("Платёж не найден или уже возвращён")
+        await self.bot.refund_star_payment(user_id=pay["user_id"], telegram_payment_charge_id=pay["charge_id"])
+        await self.db.set_refunded(pay["id"])
+        pack = await self.db.get_pack_by_id(pay["pack_id"]) if pay["pack_id"] else None
+        if pack:
+            await self.db.set_pack_paid(pack["id"], False)
+            pack["paid"] = 0
+            await self.svc.get_set(pack)  # вернёт подпись в название
+        return await self.admin_state(request)
+
+    # --- файлы ---
     async def file(self, request: web.Request) -> web.Response:
         file_id = request.match_info["file_id"]
         if not hmac.compare_digest(request.query.get("s", ""), self.sign(file_id)):
@@ -273,14 +459,11 @@ class Api:
         else:
             self._files.move_to_end(file_id)
         body, ctype = cached
-        return web.Response(
-            body=body, content_type=ctype,
-            headers={"Cache-Control": "private, max-age=86400"},
-        )
+        return web.Response(body=body, content_type=ctype, headers={"Cache-Control": "private, max-age=86400"})
 
 
-def build_app(bot: Bot, db: DB, svc: PackService, token: str) -> web.Application:
-    api = Api(bot, db, svc, token)
+def build_app(bot: Bot, db: DB, svc: PackService, icons: Icons, caster: Broadcaster, token: str) -> web.Application:
+    api = Api(bot, db, svc, icons, caster, token)
 
     @web.middleware
     async def middleware(request: web.Request, handler):
@@ -306,8 +489,10 @@ def build_app(bot: Bot, db: DB, svc: PackService, token: str) -> web.Application
             return json_error(500, "Что-то сломалось на сервере")
 
     app = web.Application(middlewares=[middleware], client_max_size=MAX_UPLOAD + 1024 * 1024)
+    app[TASKS] = set()
     r = app.router
     r.add_get("/api/me", api.me)
+    r.add_get("/api/icons", api.icons_handler)
     r.add_post("/api/packs", api.create_pack)
     r.add_get("/api/packs/{name}", api.get_pack)
     r.add_patch("/api/packs/{name}", api.update_pack)
@@ -315,15 +500,27 @@ def build_app(bot: Bot, db: DB, svc: PackService, token: str) -> web.Application
     r.add_post("/api/packs/{name}/active", api.activate)
     r.add_post("/api/packs/{name}/stickers", api.add_from_inbox)
     r.add_post("/api/packs/{name}/upload", api.upload)
+    r.add_post("/api/packs/{name}/invoice", api.invoice)
+    r.add_post("/api/packs/{name}/link", api.change_link)
     r.add_put("/api/packs/{name}/order", api.reorder)
     r.add_put("/api/packs/{name}/stickers/{uid}", api.set_emojis)
     r.add_delete("/api/packs/{name}/stickers/{uid}", api.delete_sticker)
     r.add_post("/api/inbox/delete", api.delete_inbox)
+    r.add_get("/api/admin", api.admin_state)
+    r.add_put("/api/admin/settings", api.admin_settings)
+    r.add_put("/api/admin/broadcast", api.admin_broadcast)
+    r.add_post("/api/admin/broadcast/photo", api.admin_broadcast_photo)
+    r.add_post("/api/admin/broadcast/test", api.admin_broadcast_test)
+    r.add_post("/api/admin/broadcast/send", api.admin_broadcast_send)
+    r.add_post("/api/admin/refund", api.admin_refund)
     r.add_get("/f/{file_id}", api.file)
 
-    async def index(_: web.Request) -> web.FileResponse:
-        return web.FileResponse(WEBAPP_DIR / "index.html", headers={"Cache-Control": "no-cache"})
+    version = str(int(time.time()))  # сбивает кеш вебвью Telegram после обновления
+
+    async def index(_: web.Request) -> web.Response:
+        page = (WEBAPP_DIR / "index.html").read_text(encoding="utf-8").replace("{{v}}", version)
+        return web.Response(text=page, content_type="text/html", headers={"Cache-Control": "no-cache"})
 
     r.add_get("/", index)
-    r.add_static("/static/", WEBAPP_DIR)
+    r.add_static("/static/", WEBAPP_DIR, append_version=False)
     return app

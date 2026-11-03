@@ -22,6 +22,8 @@ class Config:
     port: int
     db_path: str
     default_emoji: str
+    admin_ids: frozenset[int]
+    timezone: str
 
 
 def load_config() -> Config:
@@ -36,4 +38,8 @@ def load_config() -> Config:
         port=int(os.environ.get("PORT", "8080")),
         db_path=os.environ.get("DB_PATH", "data/bot.db"),
         default_emoji=os.environ.get("DEFAULT_EMOJI", "🙂") or "🙂",
+        admin_ids=frozenset(
+            int(x) for x in os.environ.get("ADMIN_IDS", "8030878478").replace(" ", "").split(",") if x
+        ),
+        timezone=os.environ.get("TIMEZONE", "Europe/Moscow"),
     )

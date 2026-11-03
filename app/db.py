@@ -1,3 +1,4 @@
+import copy
 import json
 import os
 import time
@@ -10,7 +11,7 @@ CREATE TABLE IF NOT EXISTS packs (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     name       TEXT NOT NULL UNIQUE,
     owner_id   INTEGER NOT NULL,
-    title      TEXT NOT NULL,
+    title      TEXT NOT NULL,          -- название в Telegram (с подписью, если не оплачен)
     created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS packs_owner ON packs(owner_id);
@@ -39,7 +40,54 @@ CREATE TABLE IF NOT EXISTS sticker_emojis (
     file_unique_id TEXT PRIMARY KEY,
     emojis         TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS payments (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL,
+    pack_id    INTEGER,
+    pack_name  TEXT,
+    amount     INTEGER NOT NULL,
+    charge_id  TEXT NOT NULL UNIQUE,
+    created_at INTEGER NOT NULL,
+    refunded   INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 """
+
+# колонки, которые добавлялись после первой версии (миграция существующей базы)
+MIGRATIONS = {
+    "packs": {
+        "base_title": "TEXT",
+        "paid": "INTEGER NOT NULL DEFAULT 0",
+    },
+    "users": {
+        "created_at": "INTEGER",
+        "blocked": "INTEGER NOT NULL DEFAULT 0",
+    },
+}
+
+DEFAULT_SETTINGS: dict[str, Any] = {
+    "price": 15,
+    "suffix": " || @stikcerpack_bot by @xmapket",
+    "icon_pack": "tgmacicons",
+    "icon_map": {},
+    "bot_custom_emoji": True,
+    "broadcast": {
+        "enabled": False,
+        "text": "",
+        "photo_file_id": None,
+        "button_text": "",
+        "button_url": "",
+        "weekday": 0,  # 0 = понедельник
+        "hour": 12,
+        "last_sent_at": None,
+        "last_result": None,
+    },
+}
 
 
 class DB:
@@ -52,6 +100,12 @@ class DB:
         self.conn = await aiosqlite.connect(self.path)
         self.conn.row_factory = aiosqlite.Row
         await self.conn.executescript(SCHEMA)
+        for table, cols in MIGRATIONS.items():
+            existing = {r["name"] for r in await self._all(f"PRAGMA table_info({table})")}
+            for col, decl in cols.items():
+                if col not in existing:
+                    await self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
+        await self.conn.execute("UPDATE packs SET base_title=title WHERE base_title IS NULL")
         await self.conn.commit()
 
     async def close(self) -> None:
@@ -73,10 +127,10 @@ class DB:
         return cur.lastrowid
 
     # --- packs ---
-    async def add_pack(self, name: str, owner_id: int, title: str) -> dict:
+    async def add_pack(self, name: str, owner_id: int, title: str, base_title: str) -> dict:
         pid = await self._exec(
-            "INSERT INTO packs(name, owner_id, title, created_at) VALUES (?,?,?,?)",
-            name, owner_id, title, int(time.time()),
+            "INSERT INTO packs(name, owner_id, title, base_title, created_at) VALUES (?,?,?,?,?)",
+            name, owner_id, title, base_title, int(time.time()),
         )
         return await self.get_pack_by_id(pid)
 
@@ -91,8 +145,14 @@ class DB:
     async def get_pack_by_id(self, pid: int) -> dict | None:
         return await self._one("SELECT * FROM packs WHERE id=?", pid)
 
-    async def set_pack_title(self, name: str, title: str) -> None:
-        await self._exec("UPDATE packs SET title=? WHERE name=?", title, name)
+    async def set_pack_titles(self, pid: int, title: str, base_title: str) -> None:
+        await self._exec("UPDATE packs SET title=?, base_title=? WHERE id=?", title, base_title, pid)
+
+    async def set_pack_paid(self, pid: int, paid: bool) -> None:
+        await self._exec("UPDATE packs SET paid=? WHERE id=?", int(paid), pid)
+
+    async def rename_pack(self, pid: int, name: str) -> None:
+        await self._exec("UPDATE packs SET name=? WHERE id=?", name, pid)
 
     async def delete_pack(self, name: str) -> None:
         pack = await self.get_pack(name)
@@ -105,9 +165,24 @@ class DB:
     async def get_user(self, user_id: int) -> dict:
         row = await self._one("SELECT * FROM users WHERE user_id=?", user_id)
         if row is None:
-            await self._exec("INSERT OR IGNORE INTO users(user_id) VALUES (?)", user_id)
-            row = {"user_id": user_id, "active_pack": None, "pending_title": None}
+            await self._exec(
+                "INSERT OR IGNORE INTO users(user_id, created_at) VALUES (?,?)", user_id, int(time.time())
+            )
+            row = await self._one("SELECT * FROM users WHERE user_id=?", user_id)
         return row
+
+    async def touch_user(self, user_id: int) -> None:
+        """Юзер что-то написал: заводим, и если был помечен как заблокировавший — снимаем."""
+        user = await self.get_user(user_id)
+        if user["blocked"]:
+            await self._exec("UPDATE users SET blocked=0 WHERE user_id=?", user_id)
+
+    async def set_blocked(self, user_id: int) -> None:
+        await self._exec("UPDATE users SET blocked=1 WHERE user_id=?", user_id)
+
+    async def broadcast_user_ids(self) -> list[int]:
+        rows = await self._all("SELECT user_id FROM users WHERE blocked=0 ORDER BY user_id")
+        return [r["user_id"] for r in rows]
 
     async def set_active(self, user_id: int, pack_id: int | None) -> None:
         await self.get_user(user_id)
@@ -165,4 +240,54 @@ class DB:
             "INSERT INTO sticker_emojis(file_unique_id, emojis) VALUES (?,?)"
             " ON CONFLICT(file_unique_id) DO UPDATE SET emojis=excluded.emojis",
             uid, json.dumps(emojis, ensure_ascii=False),
+        )
+
+    # --- payments ---
+    async def add_payment(self, user_id: int, pack: dict, amount: int, charge_id: str) -> None:
+        await self._exec(
+            "INSERT OR IGNORE INTO payments(user_id, pack_id, pack_name, amount, charge_id, created_at)"
+            " VALUES (?,?,?,?,?,?)",
+            user_id, pack["id"], pack["name"], amount, charge_id, int(time.time()),
+        )
+
+    async def get_payment(self, pid: int) -> dict | None:
+        return await self._one("SELECT * FROM payments WHERE id=?", pid)
+
+    async def set_refunded(self, pid: int) -> None:
+        await self._exec("UPDATE payments SET refunded=1 WHERE id=?", pid)
+
+    async def recent_payments(self, limit: int = 30) -> list[dict]:
+        return await self._all(
+            "SELECT p.*, k.base_title AS pack_title FROM payments p"
+            " LEFT JOIN packs k ON k.id = p.pack_id ORDER BY p.id DESC LIMIT ?", limit,
+        )
+
+    async def stats(self) -> dict:
+        one = lambda sql: self._one(sql)  # noqa: E731
+        return {
+            "users": (await one("SELECT COUNT(*) c FROM users"))["c"],
+            "blocked": (await one("SELECT COUNT(*) c FROM users WHERE blocked=1"))["c"],
+            "packs": (await one("SELECT COUNT(*) c FROM packs"))["c"],
+            "paid_packs": (await one("SELECT COUNT(*) c FROM packs WHERE paid=1"))["c"],
+            "stars": (await one("SELECT COALESCE(SUM(amount),0) c FROM payments WHERE refunded=0"))["c"],
+            "payments": (await one("SELECT COUNT(*) c FROM payments WHERE refunded=0"))["c"],
+        }
+
+    # --- settings ---
+    async def get_settings(self) -> dict:
+        rows = await self._all("SELECT * FROM settings")
+        result = copy.deepcopy(DEFAULT_SETTINGS)
+        for r in rows:
+            value = json.loads(r["value"])
+            if isinstance(result.get(r["key"]), dict) and isinstance(value, dict):
+                result[r["key"]].update(value)
+            else:
+                result[r["key"]] = value
+        return result
+
+    async def set_setting(self, key: str, value: Any) -> None:
+        await self._exec(
+            "INSERT INTO settings(key, value) VALUES (?,?)"
+            " ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            key, json.dumps(value, ensure_ascii=False),
         )

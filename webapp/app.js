@@ -6,7 +6,10 @@ tg?.expand();
 try { tg?.disableVerticalSwipes?.(); } catch (_) {}
 
 const $ = (id) => document.getElementById(id);
-const state = { me: null, pack: null, inboxSelect: false, inboxSelected: new Set() };
+const state = {
+  me: null, pack: null, icons: { slots: {}, all: [] }, admin: null, adminTab: "stats",
+  inboxSelect: false, inboxSelected: new Set(),
+};
 
 // ---------- helpers ----------
 function h(tag, attrs = {}, ...children) {
@@ -17,7 +20,7 @@ function h(tag, attrs = {}, ...children) {
     else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
     else el.setAttribute(k, v === true ? "" : v);
   }
-  for (const c of children.flat()) if (c != null) el.append(c);
+  for (const c of children.flat(Infinity)) if (c != null && c !== false) el.append(c);
   return el;
 }
 
@@ -57,7 +60,7 @@ function toast(text) {
   t.textContent = text;
   t.classList.remove("hidden");
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.add("hidden"), 2600);
+  toastTimer = setTimeout(() => t.classList.add("hidden"), 2800);
 }
 
 function confirmBox(text) {
@@ -68,6 +71,8 @@ function confirmBox(text) {
 }
 
 function haptic(kind = "light") { tg?.HapticFeedback?.impactOccurred(kind); }
+function success() { tg?.HapticFeedback?.notificationOccurred("success"); }
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function parseEmojis(str) {
   const seg = typeof Intl.Segmenter === "function"
@@ -86,6 +91,12 @@ function plural(n, one, few, many) {
   if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return few;
   return many;
 }
+const stickersWord = (n) => `${n} ${plural(n, "стикер", "стикера", "стикеров")}`;
+const fmtDate = (ts, timeZone) => {
+  const o = { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" };
+  try { return new Date(ts * 1000).toLocaleString("ru-RU", timeZone ? { ...o, timeZone } : o); }
+  catch (_) { return new Date(ts * 1000).toLocaleString("ru-RU", o); }
+};
 
 // ---------- sticker rendering ----------
 const lottieObserver = "IntersectionObserver" in window
@@ -98,14 +109,20 @@ const lottieObserver = "IntersectionObserver" in window
     }, { rootMargin: "200px" })
   : null;
 
+const lottieCache = new Map();
 async function loadLottie(el) {
   try {
     if (!window.lottie || typeof DecompressionStream !== "function") throw new Error("no lottie");
-    const res = await fetch(el.dataset.src);
-    const stream = res.body.pipeThrough(new DecompressionStream("gzip"));
-    const json = JSON.parse(await new Response(stream).text());
+    const src = el.dataset.src;
+    if (!lottieCache.has(src)) {
+      lottieCache.set(src, fetch(src).then(async (res) => {
+        const stream = res.body.pipeThrough(new DecompressionStream("gzip"));
+        return JSON.parse(await new Response(stream).text());
+      }));
+    }
+    const json = await lottieCache.get(src);
     el.innerHTML = "";
-    lottie.loadAnimation({ container: el, renderer: "svg", loop: true, autoplay: true, animationData: json });
+    lottie.loadAnimation({ container: el, renderer: "svg", loop: true, autoplay: true, animationData: structuredClone(json) });
   } catch (_) {
     if (el.dataset.thumb) el.replaceChildren(h("img", { class: "media", src: el.dataset.thumb }));
   }
@@ -132,9 +149,25 @@ function media(item) {
   return box;
 }
 
+// ---------- иконки (премиум-эмодзи) ----------
+function ic(slot) {
+  const s = state.icons.slots[slot];
+  if (s?.icon) return h("span", { class: "ic" }, media(s.icon));
+  return h("span", { class: "ic ic-text" }, s?.fallback || "");
+}
+function fillIcons(root = document) {
+  root.querySelectorAll("[data-ic]").forEach((el) => el.replaceChildren(ic(el.dataset.ic)));
+}
+async function loadIcons() {
+  try {
+    state.icons = await api("GET", "/api/icons");
+  } catch (_) {}
+  fillIcons();
+}
+
 // ---------- sheet ----------
 function openSheet(...content) {
-  $("sheetBody").replaceChildren(...content.flat(Infinity).filter((c) => c != null));
+  $("sheetBody").replaceChildren(...content.flat(Infinity).filter((c) => c != null && c !== false));
   $("sheet").classList.remove("hidden");
 }
 function closeSheet() { $("sheet").classList.add("hidden"); $("sheetBody").replaceChildren(); }
@@ -154,21 +187,37 @@ function inboxPicker(items, selected, onChange) {
   }));
 }
 
-// ---------- home ----------
+// ---------- навигация ----------
+function showView(id) {
+  for (const v of ["home", "pack", "admin"]) $(v).classList.toggle("hidden", v !== id);
+  if (id === "home") tg?.BackButton?.hide(); else tg?.BackButton?.show();
+  window.scrollTo(0, 0);
+}
+
+async function goHome() {
+  closeSheet();
+  state.pack = null;
+  showView("home");
+  await withBusy("", loadHome).catch(() => {});
+}
+tg?.BackButton?.onClick(goHome);
+
+// ---------- главная ----------
 async function loadHome() {
   state.me = await api("GET", "/api/me");
   renderHome();
 }
 
 function renderHome() {
-  const { packs, inbox, pending_title } = state.me;
+  const { packs, inbox, pending_title, is_admin } = state.me;
+  $("adminBtn").classList.toggle("hidden", !is_admin);
   const pending = $("pending");
   if (pending_title) {
     pending.textContent = `Бот ждёт первый стикер для набора «${pending_title}».`;
     pending.classList.remove("hidden");
   } else pending.classList.add("hidden");
 
-  $("packs").replaceChildren(...(packs.length ? packs.map(packCard) : [
+  $("packs").replaceChildren(...(packs.length ? packs.map((p) => packCard(p)) : [
     h("div", { class: "empty" }, "Наборов пока нет. Создай тут или командой /new в боте."),
   ]));
 
@@ -202,10 +251,13 @@ function packCard(p, onClick) {
     h("div", { class: "cover" }, p.cover ? media(p.cover) : null),
     h("div", { class: "info" },
       h("div", { class: "t" }, p.title),
-      h("div", { class: "muted small", style: "margin:0" },
-        `${p.count} ${plural(p.count, "стикер", "стикера", "стикеров")}`)),
+      h("div", { class: "muted small", style: "margin:0;display:flex;gap:8px;align-items:center" },
+        stickersWord(p.count),
+        p.access ? null : h("span", { class: "lock-badge" }, ic("lock"), "с подписью"))),
     p.active ? h("span", { class: "badge" }, "активный") : null);
 }
+
+$("adminBtn").addEventListener("click", openAdmin);
 
 $("inboxSelectBtn").addEventListener("click", () => {
   state.inboxSelect = !state.inboxSelect;
@@ -227,28 +279,27 @@ $("inboxDelete").addEventListener("click", async () => {
 
 $("inboxToPack").addEventListener("click", () => {
   const ids = [...state.inboxSelected];
-  const packs = state.me.packs;
   openSheet(
     h("h3", {}, `Куда добавить ${ids.length} шт.?`),
     h("div", { class: "list" },
-      packs.map((p) => packCard(p, async () => {
+      state.me.packs.map((p) => packCard(p, async () => {
         closeSheet();
         await withBusy("Добавляю стикеры…", () => api("POST", `/api/packs/${p.name}/stickers`, { inbox_ids: ids }));
         state.inboxSelected.clear();
         state.inboxSelect = false;
-        tg?.HapticFeedback?.notificationOccurred("success");
+        success();
         toast("Добавлено");
         await loadHome();
       }))),
-    h("button", { class: "btn primary wide", onclick: () => newPackSheet(new Set(ids)) }, "＋ Новый набор из них"),
+    h("button", { class: "btn primary wide", onclick: () => newPackSheet(new Set(ids)) }, ic("add"), " Новый набор из них"),
   );
 });
 
 $("newPackBtn").addEventListener("click", () => newPackSheet(new Set()));
 
 function newPackSheet(selected) {
-  const inbox = state.me.inbox;
-  const title = h("input", { class: "field text", placeholder: "Название набора", maxlength: "64" });
+  const { inbox, max_title, suffix, price } = state.me;
+  const title = h("input", { class: "field text", placeholder: "Название набора", maxlength: String(max_title) });
   const create = h("button", { class: "btn primary wide" });
   const refresh = () => {
     create.disabled = !selected.size;
@@ -262,13 +313,16 @@ function newPackSheet(selected) {
       api("POST", "/api/packs", { title: t, inbox_ids: [...selected] }));
     state.inboxSelected.clear();
     state.inboxSelect = false;
-    tg?.HapticFeedback?.notificationOccurred("success");
+    success();
     showPack(pack);
   });
   refresh();
   openSheet(
     h("h3", {}, "Новый набор"),
     title,
+    max_title < 64
+      ? h("p", { class: "muted small" }, `До ${max_title} символов: к названию добавится «${suffix.trim()}». Убрать — ${price} ⭐ за набор.`)
+      : null,
     inbox.length
       ? [h("p", { class: "muted small" }, "Выбери стикеры из входящих (нужен хотя бы один):"),
          inboxPicker(inbox, selected, refresh), create]
@@ -278,7 +332,7 @@ function newPackSheet(selected) {
   title.focus();
 }
 
-// ---------- pack ----------
+// ---------- набор ----------
 let sortable = null;
 let dragging = false;
 
@@ -289,28 +343,29 @@ async function openPack(name) {
 
 function showPack(pack) {
   state.pack = pack;
-  $("home").classList.add("hidden");
-  $("pack").classList.remove("hidden");
-  tg?.BackButton?.show();
-  window.scrollTo(0, 0);
+  showView("pack");
   renderPack();
 }
 
-async function goHome() {
-  closeSheet();
-  state.pack = null;
-  $("pack").classList.add("hidden");
-  $("home").classList.remove("hidden");
-  tg?.BackButton?.hide();
-  await withBusy("", loadHome).catch(() => {});
-}
-tg?.BackButton?.onClick(goHome);
-
 function renderPack() {
   const p = state.pack;
+  const me = state.me || {};
   $("packTitle").value = p.title;
-  $("packCount").textContent = `${p.count} ${plural(p.count, "стикер", "стикера", "стикеров")} из 120`;
+  $("packTitle").maxLength = p.max_title;
+  $("titleHint").textContent = p.access ? "" : `В Telegram: «${p.full_title}»`;
+  $("packCount").textContent = `${stickersWord(p.count)} из 120`;
   $("packActive").checked = p.active;
+  $("packLinkText").textContent = p.link.replace("https://", "");
+  $("packLinkEdit").disabled = false;
+  $("packLinkEdit").classList.toggle("locked", !p.access);
+
+  $("accessCard").classList.toggle("hidden", p.access);
+  if (!p.access) {
+    $("accessText").textContent =
+      `Купи доступ к этому набору: подпись «${(me.suffix || "").trim()}» уйдёт, название — до 64 символов, ссылку можно будет поменять на свою.`;
+    $("buyBtn").replaceChildren(ic("star"), ` Купить за ${me.price ?? "?"} ⭐`);
+  }
+
   const grid = $("stickers");
   grid.replaceChildren(...p.stickers.map((s) =>
     h("div", { class: "tile", "data-uid": s.uid, onclick: () => { if (!dragging) stickerSheet(s); } },
@@ -349,6 +404,7 @@ async function saveTitle() {
   try {
     state.pack = await withBusy("Переименовываю…", () => api("PATCH", `/api/packs/${p.name}`, { title: t }));
     toast("Название сохранено");
+    renderPack();
   } catch (_) {
     input.value = p.title;
   }
@@ -359,6 +415,64 @@ $("packTitle").addEventListener("keydown", (e) => { if (e.key === "Enter") e.tar
 $("packOpen").addEventListener("click", () => {
   const link = state.pack.link;
   if (tg?.openTelegramLink) tg.openTelegramLink(link); else window.open(link, "_blank");
+});
+
+$("buyBtn").addEventListener("click", async () => {
+  const p = state.pack;
+  const { url } = await withBusy("Готовлю оплату…", () => api("POST", `/api/packs/${p.name}/invoice`));
+  if (!tg?.openInvoice) { window.open(url, "_blank"); return; }
+  tg.openInvoice(url, async (status) => {
+    if (status !== "paid") {
+      if (status === "failed") toast("Оплата не прошла");
+      return;
+    }
+    success();
+    // бот получает подтверждение оплаты чуть позже, подождём
+    await withBusy("Применяю доступ…", async () => {
+      for (let i = 0; i < 15; i++) {
+        const fresh = await api("GET", `/api/packs/${p.name}`);
+        if (fresh.access) { state.pack = fresh; break; }
+        await sleep(1000);
+      }
+    }).catch(() => {});
+    if (state.me) state.me.packs = state.me.packs.map((x) => (x.name === p.name ? { ...x, access: true } : x));
+    renderPack();
+    toast(state.pack.access ? "Доступ куплен — подпись убрана" : "Оплата прошла, доступ вот-вот применится");
+  });
+});
+
+$("packLinkEdit").addEventListener("click", () => {
+  const p = state.pack;
+  if (!p.access) {
+    haptic("medium");
+    toast(`Смена ссылки — после покупки доступа (${state.me?.price ?? ""} ⭐)`);
+    $("accessCard").scrollIntoView({ behavior: "smooth", block: "center" });
+    return;
+  }
+  const suffix = `_by_${state.me?.bot || ""}`;
+  const current = p.name.endsWith(suffix) ? p.name.slice(0, -suffix.length) : p.name;
+  const input = h("input", { class: "field text", value: current, autocapitalize: "off", autocorrect: "off", spellcheck: "false" });
+  const preview = h("div", { class: "link-text", style: "margin-top:8px" });
+  const upd = () => { preview.textContent = `t.me/addstickers/${input.value.trim()}${suffix}`; };
+  input.addEventListener("input", upd);
+  upd();
+  const save = h("button", { class: "btn primary wide" }, ic("check"), " Сменить ссылку");
+  save.addEventListener("click", async () => {
+    const slug = input.value.trim();
+    if (!(await confirmBox("Telegram не умеет переименовывать ссылку, поэтому набор пересоздаётся. Старая ссылка перестанет работать, у тех, кто уже добавил набор, он пропадёт. Продолжаем?"))) return;
+    closeSheet();
+    state.pack = await withBusy("Переношу набор на новую ссылку…", () =>
+      api("POST", `/api/packs/${p.name}/link`, { slug }));
+    success();
+    toast("Ссылка изменена");
+    renderPack();
+  });
+  openSheet(
+    h("h3", {}, "Новая ссылка"),
+    h("p", { class: "muted small" }, `Латиница, цифры и _. Окончание ${suffix} Telegram добавляет обязательно.`),
+    input, preview, save,
+  );
+  input.focus();
 });
 
 $("packActive").addEventListener("change", async (e) => {
@@ -383,7 +497,7 @@ function stickerSheet(s) {
   const p = state.pack;
   const input = h("input", { class: "field", value: s.emojis.join(""), placeholder: "😀🔥", inputmode: "text" });
   const chips = h("div", { class: "emoji-chips" });
-  const save = h("button", { class: "btn primary" }, "Сохранить");
+  const save = h("button", { class: "btn primary" }, ic("check"), " Сохранить");
   const refresh = () => {
     const list = parseEmojis(input.value);
     chips.replaceChildren(...(list.length ? list.map((e) => h("span", { class: "chip" }, e))
@@ -412,7 +526,7 @@ function stickerSheet(s) {
     renderPack();
   };
 
-  const del = h("button", { class: "btn danger" }, "Удалить");
+  const del = h("button", { class: "btn danger" }, ic("trash"), " Удалить");
   del.addEventListener("click", async () => {
     if (!(await confirmBox("Удалить стикер из набора?"))) return;
     closeSheet();
@@ -468,7 +582,7 @@ $("uploadInput").addEventListener("change", (e) => {
   if (!files.length) return;
   const p = state.pack;
   const input = h("input", { class: "field", placeholder: "🙂", value: "🙂" });
-  const go = h("button", { class: "btn primary wide" }, `Загрузить (${files.length})`);
+  const go = h("button", { class: "btn primary wide" }, ic("upload"), ` Загрузить (${files.length})`);
   go.addEventListener("click", async () => {
     const emojis = parseEmojis(input.value);
     if (!emojis.length) { toast("Нужен хотя бы один эмодзи"); return; }
@@ -497,11 +611,202 @@ $("uploadInput").addEventListener("change", (e) => {
   );
 });
 
-// ---------- start ----------
+// ---------- админка ----------
+async function openAdmin() {
+  await withBusy("Загружаю админку…", loadAdmin);
+  showView("admin");
+  renderAdmin();
+}
+
+async function loadAdmin() {
+  state.admin = await api("GET", "/api/admin");
+  // в админке нужен полный список иконок для выбора
+  if (!state.icons.all) await loadIcons();
+}
+
+document.querySelectorAll("#adminTabs .tab").forEach((t) => t.addEventListener("click", () => {
+  state.adminTab = t.dataset.tab;
+  haptic();
+  renderAdmin();
+}));
+
+function renderAdmin() {
+  const a = state.admin;
+  document.querySelectorAll("#adminTabs .tab").forEach((t) => t.classList.toggle("active", t.dataset.tab === state.adminTab));
+  document.querySelectorAll("#admin .pane").forEach((p) => p.classList.toggle("hidden", p.dataset.pane !== state.adminTab));
+
+  // статистика
+  const st = a.stats;
+  const tile = (slot, k, v) => h("div", { class: "stat" }, h("div", { class: "v" }, ic(slot), String(v)), h("div", { class: "k" }, k));
+  $("statTiles").replaceChildren(
+    tile("user", "пользователей", st.users),
+    tile("stop", "заблокировали бота", st.blocked),
+    tile("pack", "наборов", st.packs),
+    tile("unlock", "с купленным доступом", st.paid_packs),
+    tile("star", "звёзд заработано", st.stars),
+    tile("money", "оплат", st.payments),
+  );
+  $("payments").replaceChildren(...(a.payments.length ? a.payments.map((p) =>
+    h("div", { class: "pay" + (p.refunded ? " refunded" : "") },
+      h("div", { class: "info" },
+        h("div", { class: "t" }, `${p.amount} ⭐ · ${p.pack || "набор удалён"}`),
+        h("div", { class: "muted small", style: "margin:0" }, `${fmtDate(p.created_at)} · id ${p.user_id}${p.refunded ? " · возвращено" : ""}`)),
+      p.refunded ? null : h("button", { class: "link", onclick: () => refund(p) }, "Вернуть")))
+    : [h("div", { class: "empty" }, "Оплат пока нет")]));
+
+  // продажи
+  $("setPrice").value = a.settings.price;
+  $("setSuffix").value = a.settings.suffix;
+  updateSuffixHint();
+
+  // рассылка
+  const b = a.broadcast;
+  $("bcEnabled").checked = b.enabled;
+  $("bcWeekday").replaceChildren(...a.weekdays.map((d, i) => h("option", { value: String(i), selected: i === b.weekday }, d)));
+  $("bcHour").replaceChildren(...Array.from({ length: 24 }, (_, i) =>
+    h("option", { value: String(i), selected: i === b.hour }, `${String(i).padStart(2, "0")}:00`)));
+  $("bcText").value = b.text;
+  $("bcBtnText").value = b.button_text;
+  $("bcBtnUrl").value = b.button_url;
+  $("bcPhotoBox").replaceChildren(b.photo ? h("img", { src: b.photo }) : h("div", { class: "muted small" }, "Без картинки"));
+  $("bcPhotoRemove").classList.toggle("hidden", !b.photo);
+  $("bcSchedule").textContent = b.enabled
+    ? (b.next_run ? `Следующая: ${fmtDate(b.next_run, b.timezone)} (${b.timezone})` : "")
+    : "Автоматическая рассылка выключена";
+  const r = b.last_result;
+  $("bcLast").textContent = b.running
+    ? `Идёт рассылка: ${b.running.done}/${b.running.total}`
+    : r ? `Последняя: ${fmtDate(r.at, b.timezone)} — доставлено ${r.ok}, заблокировали ${r.blocked}, ошибок ${r.failed}` : "Ещё не рассылали";
+  updateTextHint();
+  if (b.running) setTimeout(() => state.adminTab === "post" && !$("admin").classList.contains("hidden") && refreshAdmin(), 3000);
+
+  // оформление
+  $("iconPack").value = a.settings.icon_pack;
+  $("botCustomEmoji").checked = a.settings.bot_custom_emoji;
+  const slots = state.icons.slots || {};
+  $("slotList").replaceChildren(...Object.entries(slots).map(([key, s]) =>
+    h("div", { class: "slot", onclick: () => pickIcon(key) },
+      ic(key),
+      h("span", { class: "name" }, s.label),
+      h("span", { class: "muted small", style: "margin:0" }, a.settings.icon_map[key] ? "вручную" : (s.icon ? "авто" : "обычный")))));
+  if (!(state.icons.all || []).length) {
+    $("slotList").prepend(h("div", { class: "note" }, "Набор эмодзи не загрузился — проверь имя набора выше."));
+  }
+}
+
+async function refreshAdmin() {
+  try { state.admin = await api("GET", "/api/admin"); renderAdmin(); } catch (_) {}
+}
+
+function updateSuffixHint() {
+  const len = $("setSuffix").value.length;
+  $("suffixHint").textContent = `${len}/40 · без доступа на название остаётся ${64 - len} символов`;
+}
+$("setSuffix").addEventListener("input", updateSuffixHint);
+
+function updateTextHint() {
+  const limit = state.admin?.broadcast.photo ? 1024 : 4096;
+  $("bcTextHint").textContent = `${$("bcText").value.length}/${limit}`;
+}
+$("bcText").addEventListener("input", updateTextHint);
+
+$("saveSales").addEventListener("click", async () => {
+  state.admin = await withBusy("Сохраняю…", () => api("PUT", "/api/admin/settings", {
+    price: Number($("setPrice").value), suffix: $("setSuffix").value,
+  }));
+  if (state.me) { state.me.price = state.admin.settings.price; state.me.suffix = state.admin.settings.suffix; }
+  success(); toast("Сохранено"); renderAdmin();
+});
+
+function broadcastBody() {
+  return {
+    enabled: $("bcEnabled").checked,
+    weekday: Number($("bcWeekday").value),
+    hour: Number($("bcHour").value),
+    text: $("bcText").value,
+    button_text: $("bcBtnText").value,
+    button_url: $("bcBtnUrl").value,
+  };
+}
+async function saveBroadcast(silent) {
+  state.admin = await withBusy("Сохраняю…", () => api("PUT", "/api/admin/broadcast", broadcastBody()));
+  if (!silent) { success(); toast("Пост сохранён"); }
+  renderAdmin();
+}
+$("bcSave").addEventListener("click", () => saveBroadcast(false).catch(() => {}));
+$("bcEnabled").addEventListener("change", () => saveBroadcast(true).catch(() => { $("bcEnabled").checked = !$("bcEnabled").checked; }));
+
+$("bcTest").addEventListener("click", async () => {
+  await saveBroadcast(true);
+  await withBusy("Отправляю тебе…", () => api("POST", "/api/admin/broadcast/test"));
+  success(); toast("Отправил тебе в личку — глянь, как выглядит");
+});
+
+$("bcSend").addEventListener("click", async () => {
+  await saveBroadcast(true);
+  const n = state.admin.stats.users - state.admin.stats.blocked;
+  if (!(await confirmBox(`Разослать пост прямо сейчас ${n} пользователям?`))) return;
+  state.admin = await withBusy("Запускаю…", () => api("POST", "/api/admin/broadcast/send"));
+  toast("Рассылка пошла");
+  renderAdmin();
+});
+
+$("bcPhotoInput").addEventListener("change", async (e) => {
+  const f = e.target.files[0];
+  e.target.value = "";
+  if (!f) return;
+  await saveBroadcast(true).catch(() => {});
+  const fd = new FormData();
+  fd.append("file", f, f.name);
+  state.admin = await withBusy("Загружаю картинку…", () => api("POST", "/api/admin/broadcast/photo", fd));
+  renderAdmin();
+});
+
+$("bcPhotoRemove").addEventListener("click", async () => {
+  state.admin = await withBusy("", () => api("PUT", "/api/admin/broadcast", { ...broadcastBody(), remove_photo: true }));
+  renderAdmin();
+});
+
+async function refund(p) {
+  if (!(await confirmBox(`Вернуть ${p.amount} ⭐ пользователю ${p.user_id}? Подпись вернётся в название его набора.`))) return;
+  state.admin = await withBusy("Возвращаю звёзды…", () => api("POST", "/api/admin/refund", { id: p.id }));
+  toast("Звёзды возвращены");
+  renderAdmin();
+}
+
+async function saveLook(body, text) {
+  state.admin = await withBusy(text, () => api("PUT", "/api/admin/settings", body));
+  await loadIcons();
+  renderAdmin();
+}
+$("saveIconPack").addEventListener("click", () => saveLook({ icon_pack: $("iconPack").value }, "Загружаю набор эмодзи…").then(() => toast("Применено")).catch(() => {}));
+$("botCustomEmoji").addEventListener("change", (e) => saveLook({ bot_custom_emoji: e.target.checked }, "").catch(() => {}));
+
+function pickIcon(slot) {
+  const map = { ...state.admin.settings.icon_map };
+  const choose = async (id) => {
+    if (id) map[slot] = id; else delete map[slot];
+    closeSheet();
+    await saveLook({ icon_map: map }, "Сохраняю…").catch(() => {});
+  };
+  const all = state.icons.all || [];
+  openSheet(
+    h("h3", {}, `Иконка: ${state.icons.slots[slot].label}`),
+    h("div", { class: "icon-grid" },
+      h("div", { class: "tile auto", onclick: () => choose(null) }, "Авто"),
+      h("div", { class: "tile", onclick: () => choose("none") }, h("span", { style: "font-size:26px" }, state.icons.slots[slot].fallback)),
+      all.map((i) => h("div", { class: "tile" + (map[slot] === i.id ? " selected" : ""), onclick: () => choose(i.id) }, media(i)))),
+  );
+}
+
+// ---------- старт ----------
 if (!tg?.initData) {
   document.body.replaceChildren(h("div", { class: "view" },
     h("h1", {}, "Открой через бота"),
     h("p", { class: "muted" }, "Эта страница работает только как мини-апп внутри Telegram.")));
 } else {
-  withBusy("Загружаю…", loadHome).catch(() => {});
+  fillIcons();
+  withBusy("Загружаю…", () => Promise.all([loadIcons(), loadHome()]))
+    .then(() => { if (location.hash === "#admin" && state.me.is_admin) openAdmin(); })
+    .catch(() => {});
 }

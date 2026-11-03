@@ -45,7 +45,9 @@ def json_error(status: int, message: str) -> web.Response:
 
 
 class Api:
-    def __init__(self, bot: Bot, db: DB, svc: PackService, icons: Icons, caster: Broadcaster, token: str, cfg=None):
+    def __init__(self, bot: Bot, db: DB, svc: PackService, icons: Icons, caster: Broadcaster, token: str, cfg=None,
+                 app_icons: Icons | None = None):
+        self.app_icons = app_icons or icons
         self.cfg = cfg
         self.bot = bot
         self.db = db
@@ -142,10 +144,11 @@ class Api:
         })
 
     async def icons_handler(self, request: web.Request) -> web.Response:
-        await self.icons.refresh()
+        icons = self.icons if request.query.get("scope") == "bot" else self.app_icons
+        await icons.refresh()
         slots = {}
         for slot, (label, cands) in SLOTS.items():
-            item = self.icons.resolved.get(slot)
+            item = icons.resolved.get(slot)
             slots[slot] = {
                 "label": label,
                 "fallback": cands[0],
@@ -156,7 +159,7 @@ class Api:
         if self.svc.is_admin(self.user_id(request)):
             data["all"] = [
                 {"id": i["id"], "emoji": i["emoji"], **self.ser_media(i["file_id"], i["thumb_id"], i["format"])}
-                for i in self.icons.items
+                for i in icons.items
             ]
         return web.json_response(data)
 
@@ -314,6 +317,8 @@ class Api:
                 "suffix": settings["suffix"],
                 "icon_pack": settings["icon_pack"],
                 "icon_map": settings["icon_map"],
+                "app_icon_pack": settings["app_icon_pack"],
+                "app_icon_map": settings["app_icon_map"],
                 "bot_custom_emoji": settings["bot_custom_emoji"],
             },
             "broadcast": {
@@ -326,6 +331,7 @@ class Api:
             },
             "weekdays": WEEKDAYS,
             "icon_errors": self.icons.errors,
+            "app_icon_errors": self.app_icons.errors,
             "unread": await self.db.unread_total(),
             "screens": await self.ser_screens(),
             "order_links": await screens.get_order_links(self.db),
@@ -500,10 +506,14 @@ class Api:
             await self.db.set_setting("icon_pack", name)
         if "bot_custom_emoji" in body:
             await self.db.set_setting("bot_custom_emoji", bool(body["bot_custom_emoji"]))
-        if "icon_map" in body and isinstance(body["icon_map"], dict):
-            clean = {k: str(v) for k, v in body["icon_map"].items() if k in SLOTS and v}
-            await self.db.set_setting("icon_map", clean)
+        if "app_icon_pack" in body:
+            await self.db.set_setting("app_icon_pack", str(body["app_icon_pack"]).strip())
+        for key in ("icon_map", "app_icon_map"):
+            if key in body and isinstance(body[key], dict):
+                clean = {k: str(v) for k, v in body[key].items() if k in SLOTS and v}
+                await self.db.set_setting(key, clean)
         await self.icons.refresh(force="icon_pack" in body)
+        await self.app_icons.refresh(force="app_icon_pack" in body)
         return await self.admin_state(request)
 
     async def admin_broadcast(self, request: web.Request) -> web.Response:
@@ -601,8 +611,8 @@ class Api:
 
 
 def build_app(bot: Bot, db: DB, svc: PackService, icons: Icons, caster: Broadcaster, token: str,
-              cfg=None) -> web.Application:
-    api = Api(bot, db, svc, icons, caster, token, cfg)
+              cfg=None, app_icons: Icons | None = None) -> web.Application:
+    api = Api(bot, db, svc, icons, caster, token, cfg, app_icons)
 
     @web.middleware
     async def middleware(request: web.Request, handler):

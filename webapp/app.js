@@ -149,11 +149,62 @@ function media(item) {
   return box;
 }
 
-// ---------- иконки (премиум-эмодзи) ----------
+// ---------- иконки ----------
+// Сначала иконка из набора мини-апки (iOS-стиль), иначе встроенная монохромная SVG. Эмодзи не используем.
+const SVG_PATHS = {
+  pack: '<path d="M21 8l-9-5-9 5v8l9 5 9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/>',
+  add: '<path d="M12 5v14M5 12h14"/>',
+  inbox: '<path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>',
+  upload: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>',
+  edit: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>',
+  trash: '<path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6"/>',
+  star: '<path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z"/>',
+  lock: '<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+  unlock: '<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/>',
+  link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
+  check: '<path d="M20 6L9 17l-5-5"/>',
+  stop: '<rect x="5" y="5" width="14" height="14" rx="2"/>',
+  copy: '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
+  settings: '<path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/>',
+  chart: '<path d="M18 20V10M12 20V4M6 20v-6"/>',
+  megaphone: '<path d="M3 11l18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/>',
+  user: '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+  money: '<path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>',
+  clock: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+  eyes: '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>',
+  warning: '<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4M12 17h.01"/>',
+  image: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/>',
+  palette: '<circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 0 0 0 20z" fill="currentColor"/>',
+  sparkle: '<path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M5.6 18.4l2.8-2.8M15.6 8.4l2.8-2.8"/>',
+  chat: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
+  info: '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/>',
+  order: '<circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>',
+  back: '<path d="M15 18l-6-6 6-6"/>',
+  chevron: '<path d="M9 18l6-6-6-6"/>',
+  home: '<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/>',
+  emoji: '<circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01"/>',
+  video: '<path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/>',
+  down: '<path d="M12 5v14M19 12l-7 7-7-7"/>',
+  fire: '<path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>',
+  external: '<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3"/>',
+  send: '<path d="M22 2L11 13M22 2l-7 20-4-9-9-4z"/>',
+  clip: '<path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>',
+  moon: '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>',
+};
+
+function svgIcon(name) {
+  const span = document.createElement("span");
+  span.className = "ic ic-svg";
+  span.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${SVG_PATHS[name] || SVG_PATHS.sparkle}</svg>`;
+  return span;
+}
+
 function ic(slot) {
+  if (slot === "theme") return svgIcon(currentTheme() === "light" ? "moon" : "sun");
   const s = state.icons.slots[slot];
-  if (s?.icon) return h("span", { class: "ic" }, media(s.icon));
-  return h("span", { class: "ic ic-text" }, s?.fallback || "");
+  if (s?.icon) return h("span", { class: "ic ic-pack" }, media(s.icon));
+  return svgIcon(slot);
 }
 function fillIcons(root = document) {
   root.querySelectorAll("[data-ic]").forEach((el) => el.replaceChildren(ic(el.dataset.ic)));
@@ -207,32 +258,18 @@ function goBack() {
 }
 tg?.BackButton?.onClick(goBack);
 
-// ---------- темы ----------
-// bg, bg2, text, btn, btn2 — для превью в списке тем
-const THEMES = [
-  { id: "tg", name: "Как в Telegram" },
-  { id: "light", name: "Светлая", c: ["#f6f7fb", "#ffffff", "#14151a", "#3d6bff", "#7b5cff"] },
-  { id: "dark", name: "Тёмная", c: ["#0f1013", "#1b1c21", "#f1f2f4", "#4c8dff", "#8a6bff"] },
-  { id: "midnight", name: "Полночь", c: ["#0b1026", "#151b3a", "#e8ebff", "#5b6cff", "#b04dff"] },
-  { id: "neon", name: "Неон", c: ["#07070b", "#13131b", "#f5f5ff", "#ff2fa0", "#00d4ff"] },
-  { id: "sunset", name: "Закат", c: ["#1a0f12", "#2a1a1e", "#fff1ea", "#ff7a45", "#ff3d7f"] },
-  { id: "mint", name: "Мята", c: ["#eef8f4", "#ffffff", "#0f2a22", "#12b886", "#1fa2c9"] },
-  { id: "mono", name: "Монохром", c: ["#000000", "#111111", "#ffffff", "#ffffff", "#cfcfcf"] },
-];
-
-function currentTheme() { return document.documentElement.dataset.theme || "tg"; }
+// ---------- темы: чёрно-белая и бело-чёрная ----------
+function currentTheme() { return document.documentElement.dataset.theme === "light" ? "light" : "dark"; }
 
 function applyTheme(id, save = true) {
-  if (!THEMES.some((t) => t.id === id)) id = "tg";
+  id = id === "light" ? "light" : "dark";
   document.documentElement.dataset.theme = id;
-  const bg = getComputedStyle(document.documentElement).getPropertyValue("--bg").trim();
+  const bg = id === "light" ? "#ffffff" : "#000000";
   try {
-    if (tg?.isVersionAtLeast?.("6.1")) {
-      tg.setHeaderColor(id === "tg" ? "bg_color" : bg);
-      tg.setBackgroundColor(id === "tg" ? "bg_color" : bg);
-    }
-    if (tg?.isVersionAtLeast?.("7.10")) tg.setBottomBarColor(id === "tg" ? "bottom_bar_bg_color" : bg);
+    if (tg?.isVersionAtLeast?.("6.1")) { tg.setHeaderColor(bg); tg.setBackgroundColor(bg); }
+    if (tg?.isVersionAtLeast?.("7.10")) tg.setBottomBarColor(bg);
   } catch (_) {}
+  fillIcons($("themeBtn"));
   if (!save) return;
   try { localStorage.setItem("theme", id); } catch (_) {}
   // облако Telegram — тема одна на всех устройствах юзера
@@ -246,28 +283,6 @@ function syncThemeFromCloud() {
       if (!err && value && value !== currentTheme()) applyTheme(value);
     });
   } catch (_) {}
-}
-
-function themePreview(t) {
-  const p = tg?.themeParams || {};
-  const [bg, bg2, text, btn, btn2] = t.c || [p.bg_color || "#ffffff", p.secondary_bg_color || "#f1f1f4",
-    p.text_color || "#111111", p.button_color || "#2481cc", p.button_color || "#2481cc"];
-  return h("div", { class: "theme-prev", style: `background:${bg}` },
-    h("div", { class: "pb", style: `background:linear-gradient(135deg,${btn},${btn2})` }),
-    h("div", { class: "pl", style: `background:${text}` }),
-    h("div", { class: "pl", style: `background:${bg2};opacity:1;width:90%;height:12px` }),
-    h("div", { class: "pbtn", style: `background:linear-gradient(135deg,${btn},${btn2})` }));
-}
-
-function themeSheet() {
-  const render = () => openSheet(
-    h("h3", {}, "Тема оформления"),
-    h("div", { class: "themes" }, THEMES.map((t) =>
-      h("div", { class: "theme-card" + (currentTheme() === t.id ? " active" : ""), onclick: () => { applyTheme(t.id); haptic(); render(); } },
-        themePreview(t), h("div", { class: "theme-name" }, t.name)))),
-    h("p", { class: "muted small" }, "Тема запоминается и подтягивается на других твоих устройствах."),
-  );
-  render();
 }
 
 // ---------- главная ----------
@@ -328,11 +343,12 @@ function packCard(p, onClick) {
         stickersWord(p.count),
         p.access ? null : h("span", { class: "lock-badge" }, ic("lock"), "с подписью"))),
     p.active ? h("span", { class: "badge" }, "активный") : null,
-    onClick ? null : h("span", { class: "chev" }, "›"));
+    onClick ? null : h("span", { class: "chev" }, svgIcon("chevron")));
 }
 
 $("adminBtn").addEventListener("click", openAdmin);
-$("themeBtn").addEventListener("click", themeSheet);
+$("themeBtn").addEventListener("click", () => { applyTheme(currentTheme() === "light" ? "dark" : "light"); haptic(); });
+$("brandHome").addEventListener("click", () => { if ($("home").classList.contains("hidden")) goHome(); });
 
 $("inboxSelectBtn").addEventListener("click", () => {
   state.inboxSelect = !state.inboxSelect;
@@ -396,7 +412,7 @@ function newPackSheet(selected) {
     h("h3", {}, "Новый набор"),
     title,
     max_title < 64
-      ? h("p", { class: "muted small" }, `До ${max_title} символов: к названию добавится «${suffix.trim()}». Убрать — ${price} ⭐ за набор.`)
+      ? h("p", { class: "muted small" }, `До ${max_title} символов: к названию добавится «${suffix.trim()}». Убрать — ${price} звёзд за набор.`)
       : null,
     inbox.length
       ? [h("p", { class: "muted small" }, "Выбери стикеры из входящих (нужен хотя бы один):"),
@@ -438,7 +454,7 @@ function renderPack() {
   if (!p.access) {
     $("accessText").textContent =
       `Купи доступ к этому набору: подпись «${(me.suffix || "").trim()}» уйдёт, название — до 64 символов, ссылку можно будет поменять на свою.`;
-    $("buyBtn").replaceChildren(ic("star"), ` Купить за ${me.price ?? "?"} ⭐`);
+    $("buyBtn").replaceChildren(ic("star"), ` Купить за ${me.price ?? "?"} звёзд`);
   }
 
   const grid = $("stickers");
@@ -520,7 +536,7 @@ $("packLinkEdit").addEventListener("click", () => {
   const p = state.pack;
   if (!p.access) {
     haptic("medium");
-    toast(`Смена ссылки — после покупки доступа (${state.me?.price ?? ""} ⭐)`);
+    toast(`Смена ссылки — после покупки доступа (${state.me?.price ?? ""} звёзд)`);
     $("accessCard").scrollIntoView({ behavior: "smooth", block: "center" });
     return;
   }
@@ -570,7 +586,7 @@ $("deletePack").addEventListener("click", async () => {
 
 function stickerSheet(s) {
   const p = state.pack;
-  const input = h("input", { class: "field", value: s.emojis.join(""), placeholder: "😀🔥", inputmode: "text" });
+  const input = h("input", { class: "field", value: s.emojis.join(""), placeholder: "Эмодзи стикера", inputmode: "text" });
   const chips = h("div", { class: "emoji-chips" });
   const save = h("button", { class: "btn primary" }, ic("check"), " Сохранить");
   const refresh = () => {
@@ -617,8 +633,8 @@ function stickerSheet(s) {
     h("p", { class: "muted small" }, "Эмодзи (до 20). По ним стикер находится в подсказках:"),
     input, chips,
     h("div", { class: "row" },
-      h("button", { class: "btn", disabled: idx === 0, onclick: () => move(0) }, "⇤ В начало"),
-      h("button", { class: "btn", disabled: idx === p.stickers.length - 1, onclick: () => move(p.stickers.length - 1) }, "В конец ⇥")),
+      h("button", { class: "btn", disabled: idx === 0, onclick: () => move(0) }, ic("back"), " В начало"),
+      h("button", { class: "btn", disabled: idx === p.stickers.length - 1, onclick: () => move(p.stickers.length - 1) }, "В конец ", ic("chevron"))),
     h("div", { class: "row" }, del, save),
   );
 }
@@ -698,6 +714,7 @@ async function loadAdmin() {
   state.admin = await api("GET", "/api/admin");
   // в админке нужен полный список иконок для выбора
   if (!state.icons.all) await loadIcons();
+  await loadLookIcons();
 }
 
 document.querySelectorAll("#adminTabs .tab").forEach((t) => t.addEventListener("click", () => {
@@ -730,7 +747,7 @@ function renderAdmin() {
   $("payments").replaceChildren(...(a.payments.length ? a.payments.map((p) =>
     h("div", { class: "pay" + (p.refunded ? " refunded" : "") },
       h("div", { class: "info" },
-        h("div", { class: "t" }, `${p.amount} ⭐ · ${p.pack || "набор удалён"}`),
+        h("div", { class: "t" }, `${p.amount} звёзд · ${p.pack || "набор удалён"}`),
         h("div", { class: "muted small", style: "margin:0" }, `${fmtDate(p.created_at)} · id ${p.user_id}${p.refunded ? " · возвращено" : ""}`)),
       p.refunded ? null : h("button", { class: "link", onclick: () => refund(p) }, "Вернуть")))
     : [h("div", { class: "empty" }, "Оплат пока нет")]));
@@ -763,17 +780,21 @@ function renderAdmin() {
 
   // оформление
   $("iconPack").value = a.settings.icon_pack;
+  $("appIconPack").value = a.settings.app_icon_pack;
   $("botCustomEmoji").checked = a.settings.bot_custom_emoji;
-  const slots = state.icons.slots || {};
-  $("slotList").replaceChildren(...Object.entries(slots).map(([key, s]) =>
+  const scopeApp = state.lookScope === "app";
+  const look = state.lookIcons || state.icons;
+  const map = (scopeApp ? a.settings.app_icon_map : a.settings.icon_map) || {};
+  const errors = scopeApp ? a.app_icon_errors : a.icon_errors;
+  $("slotList").replaceChildren(...Object.entries(look.slots || {}).map(([key, s]) =>
     h("div", { class: "slot", onclick: () => pickIcon(key) },
-      ic(key),
+      lookIcon(key),
       h("span", { class: "name" }, s.label),
-      h("span", { class: "muted small", style: "margin:0" }, a.settings.icon_map[key] ? "вручную" : (s.icon ? "авто" : "обычный")))));
-  if (a.icon_errors?.length) {
-    $("slotList").prepend(h("div", { class: "note" }, `Не загрузились наборы: ${a.icon_errors.join(", ")} — проверь имена выше.`));
-  } else if (!(state.icons.all || []).length) {
-    $("slotList").prepend(h("div", { class: "note" }, "Набор эмодзи не загрузился — проверь имя набора выше."));
+      h("span", { class: "muted small", style: "margin:0" }, map[key] ? "вручную" : (s.icon ? "из набора" : (scopeApp ? "встроенная" : "обычный эмодзи"))))));
+  if (errors?.length) {
+    $("slotList").prepend(h("div", { class: "note" }, `Не загрузились наборы: ${errors.join(", ")} — проверь имена выше.`));
+  } else if (!(look.all || []).length) {
+    $("slotList").prepend(h("div", { class: "note" }, "Набор иконок не загрузился — проверь имя набора выше."));
   }
 }
 
@@ -859,34 +880,56 @@ $("bcPhotoRemove").addEventListener("click", async () => {
 });
 
 async function refund(p) {
-  if (!(await confirmBox(`Вернуть ${p.amount} ⭐ пользователю ${p.user_id}? Подпись вернётся в название его набора.`))) return;
+  if (!(await confirmBox(`Вернуть ${p.amount} звёзд пользователю ${p.user_id}? Подпись вернётся в название его набора.`))) return;
   state.admin = await withBusy("Возвращаю звёзды…", () => api("POST", "/api/admin/refund", { id: p.id }));
   toast("Звёзды возвращены");
   renderAdmin();
 }
 
+state.lookScope = "app";
+state.lookIcons = null;
+
+async function loadLookIcons() {
+  state.lookIcons = state.lookScope === "app" ? state.icons : await api("GET", "/api/icons?scope=bot").catch(() => ({ slots: {}, all: [] }));
+}
+
 async function saveLook(body, text) {
   state.admin = await withBusy(text, () => api("PUT", "/api/admin/settings", body));
   await loadIcons();
+  await loadLookIcons();
   renderAdmin();
 }
-$("saveIconPack").addEventListener("click", () => saveLook({ icon_pack: $("iconPack").value }, "Загружаю набор эмодзи…").then(() => toast("Применено")).catch(() => {}));
+
+document.querySelectorAll("#lookScope .chip-btn").forEach((b) => b.addEventListener("click", async () => {
+  state.lookScope = b.dataset.scope;
+  document.querySelectorAll("#lookScope .chip-btn").forEach((x) => x.classList.toggle("active", x === b));
+  await withBusy("", loadLookIcons).catch(() => {});
+  renderAdmin();
+}));
+
+function lookIcon(slot) {
+  const s = state.lookIcons?.slots?.[slot];
+  if (s?.icon) return h("span", { class: "ic ic-pack" }, media(s.icon));
+  return state.lookScope === "app" ? svgIcon(slot) : h("span", { class: "ic ic-text" }, s?.fallback || "");
+}
+$("saveIconPack").addEventListener("click", () => saveLook({ icon_pack: $("iconPack").value, app_icon_pack: $("appIconPack").value }, "Загружаю наборы…").then(() => toast("Применено")).catch(() => {}));
 $("botCustomEmoji").addEventListener("change", (e) => saveLook({ bot_custom_emoji: e.target.checked }, "").catch(() => {}));
 
 function pickIcon(slot) {
-  const map = { ...state.admin.settings.icon_map };
+  const key = state.lookScope === "app" ? "app_icon_map" : "icon_map";
+  const map = { ...(state.admin.settings[key] || {}) };
+  const look = state.lookIcons || state.icons;
   const choose = async (id) => {
     if (id) map[slot] = id; else delete map[slot];
     closeSheet();
-    await saveLook({ icon_map: map }, "Сохраняю…").catch(() => {});
+    await saveLook({ [key]: map }, "Сохраняю…").catch(() => {});
   };
-  const all = state.icons.all || [];
   openSheet(
-    h("h3", {}, `Иконка: ${state.icons.slots[slot].label}`),
+    h("h3", {}, `Иконка: ${look.slots[slot].label}`),
     h("div", { class: "icon-grid" },
       h("div", { class: "tile auto", onclick: () => choose(null) }, "Авто"),
-      h("div", { class: "tile", onclick: () => choose("none") }, h("span", { style: "font-size:26px" }, state.icons.slots[slot].fallback)),
-      all.map((i) => h("div", { class: "tile" + (map[slot] === i.id ? " selected" : ""), onclick: () => choose(i.id) }, media(i)))),
+      h("div", { class: "tile auto", onclick: () => choose("none") }, state.lookScope === "app" ? svgIcon(slot) : "Без"),
+      (look.all || []).map((i) => h("div", { class: "tile" + (map[slot] === i.id ? " selected" : ""), onclick: () => choose(i.id) }, media(i)))),
   );
 }
 
@@ -1075,7 +1118,7 @@ function messageBubble(m) {
   else if (m.kind === "video" || m.kind === "video_note") parts.push(h("video", { src: m.file, poster: m.thumb, controls: true, playsinline: true }));
   else if (m.kind === "animation") parts.push(Object.assign(h("video", { src: m.file, poster: m.thumb, autoplay: true, loop: true, playsinline: true }), { muted: true }));
   else if (m.kind === "voice" || m.kind === "audio") parts.push(h("audio", { src: m.file, controls: true, preload: "none" }));
-  else if (m.kind === "document") parts.push(h("a", { href: m.file, target: "_blank" }, "📎 ", m.file_name || "Файл"));
+  else if (m.kind === "document") parts.push(h("a", { href: m.file, target: "_blank", class: "file-link" }, ic("clip"), " ", m.file_name || "Файл"));
   if (m.text && m.kind !== "sticker") parts.push(h("div", {}, safeHtml(m.text)));
   return h("div", { class: "msg" + (m.out ? " out" : "") + (m.kind === "sticker" ? " sticker" : "") },
     parts, h("div", { class: "time" }, timeOf(m.at)));

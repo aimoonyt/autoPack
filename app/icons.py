@@ -65,9 +65,11 @@ def _norm(e: str) -> str:
 
 
 class Icons:
-    def __init__(self, bot: Bot, db: DB):
+    def __init__(self, bot: Bot, db: DB, pack_key: str = "icon_pack", map_key: str = "icon_map"):
         self.bot = bot
         self.db = db
+        self.pack_key = pack_key  # у бота и у мини-апки разные наборы
+        self.map_key = map_key
         self.pack_name: str | None = None
         self.items: list[dict] = []          # все эмодзи набора
         self.by_id: dict[str, dict] = {}
@@ -79,7 +81,7 @@ class Icons:
     async def refresh(self, force: bool = False) -> None:
         settings = await self.db.get_settings()
         self.custom_in_bot = bool(settings.get("bot_custom_emoji", True))
-        name = (settings.get("icon_pack") or "").strip()
+        name = (settings.get(self.pack_key) or "").strip()
         if force or name != self.pack_name or time.time() - self._fetched > TTL:
             self.pack_name = name
             self.items = []
@@ -105,7 +107,7 @@ class Icons:
                     self.errors.append(one)
             self._fetched = time.time()
             self.by_id = {i["id"]: i for i in self.items}
-        overrides = settings.get("icon_map") or {}
+        overrides = settings.get(self.map_key) or {}
         self.resolved = {}
         for slot, (_, candidates) in SLOTS.items():
             item = self.by_id.get(overrides.get(slot) or "")

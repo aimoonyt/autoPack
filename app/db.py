@@ -93,6 +93,9 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "suffix": " || @stikcerpack_bot by @xmapket",
     "icon_pack": "XMAPKETemojis, XMAPKETsymbols",
     "icon_map": {},
+    # иконки мини-апки — отдельный набор в стиле iOS-интерфейса Telegram
+    "app_icon_pack": "tgmacicons",
+    "app_icon_map": {},
     "bot_custom_emoji": True,
     "broadcast": {
         "enabled": False,

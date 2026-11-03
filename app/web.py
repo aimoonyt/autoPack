@@ -79,6 +79,11 @@ class Api:
             raise web.HTTPNotFound(text='{"error":"Набор не найден"}', content_type="application/json")
         return pack
 
+    def banner_url(self, photo: str | None) -> str | None:
+        if photo and photo.startswith(screens.BUNDLED):
+            return f"/static/banners/{photo[len(screens.BUNDLED):]}.jpg"
+        return self.furl(photo)
+
     def ser_media(self, file_id: str | None, thumb_id: str | None, fmt: str) -> dict:
         return {"format": fmt, "file": self.furl(file_id), "thumb": self.furl(thumb_id)}
 
@@ -381,7 +386,8 @@ class Api:
         data = await screens.get_screens(self.db)
         return [
             {"key": k, "label": screens.SCREEN_LABELS[k], "text": v["text"], "custom": v["custom"],
-             "photo": self.furl(v["photo_file_id"]), "default": screens.DEFAULT_TEXTS[k]}
+             "photo": self.banner_url(v["photo_file_id"]), "default_photo": v["default_photo"],
+             "default": screens.DEFAULT_TEXTS[k]}
             for k, v in data.items()
         ]
 
@@ -425,6 +431,10 @@ class Api:
                 )
         except ValueError as e:
             raise PackError(str(e))
+        if body.get("restore_photo"):
+            stored = (await self.db.get_settings()).get("screens") or {}
+            (stored.get(key) or {}).pop("photo_file_id", None)
+            await self.db.set_setting("screens", stored)
         if key == "order" and isinstance(body.get("links"), dict):
             links = {}
             for k in screens.DEFAULT_ORDER_LINKS:

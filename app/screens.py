@@ -7,10 +7,12 @@
 import html
 import logging
 import re
+from pathlib import Path
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import (
+    FSInputFile,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     InputMediaPhoto,
@@ -148,16 +150,59 @@ def visible_length(text: str) -> int:
     return len(html.unescape(_TAGS.sub("", text)))
 
 
+BANNERS_DIR = Path(__file__).resolve().parent.parent / "webapp" / "banners"
+BUNDLED = "bundled:"
+
+
+def _default_photo(key: str, cached: dict) -> str | None:
+    """Стандартный баннер экрана: уже залитый в Telegram (file_id) или файл из webapp/banners."""
+    if cached.get(key):
+        return cached[key]
+    return BUNDLED + key if (BANNERS_DIR / f"{key}.jpg").exists() else None
+
+
 async def get_screens(db: DB) -> dict[str, dict]:
-    stored = (await db.get_settings()).get("screens") or {}
-    return {
-        key: {
-            "text": (stored.get(key) or {}).get("text") or DEFAULT_TEXTS[key],
-            "photo_file_id": (stored.get(key) or {}).get("photo_file_id"),
-            "custom": bool((stored.get(key) or {}).get("text")),
+    settings = await db.get_settings()
+    stored = settings.get("screens") or {}
+    cached = settings.get("default_banners") or {}
+    result = {}
+    for key in SCREEN_LABELS:
+        scr = stored.get(key) or {}
+        # ключ photo_file_id есть — значит, админ сам поставил или убрал баннер
+        photo = scr["photo_file_id"] if "photo_file_id" in scr else _default_photo(key, cached)
+        result[key] = {
+            "text": scr.get("text") or DEFAULT_TEXTS[key],
+            "photo_file_id": photo,
+            "custom": bool(scr.get("text")),
+            "default_photo": "photo_file_id" not in scr,
         }
-        for key in SCREEN_LABELS
-    }
+    return result
+
+
+def photo_media(photo: str | None):
+    """file_id как есть, стандартный баннер — файлом с диска (зальётся один раз)."""
+    if photo and photo.startswith(BUNDLED):
+        return FSInputFile(BANNERS_DIR / f"{photo[len(BUNDLED):]}.jpg", filename="banner.jpg")
+    return photo
+
+
+async def _remember_banner(db: DB, photo: str | None, msg: Message) -> None:
+    """После первой отправки стандартного баннера запоминаем его file_id."""
+    if not photo or not photo.startswith(BUNDLED):
+        return
+    file_id = None
+    if getattr(msg, "photo", None):
+        file_id = msg.photo[-1].file_id
+    rm = getattr(msg, "rich_message", None)
+    for block in getattr(rm, "blocks", None) or []:
+        if getattr(block, "type", None) == "photo" and isinstance(getattr(block, "photo", None), list) and block.photo:
+            file_id = block.photo[-1].file_id
+            break
+    if file_id:
+        settings = await db.get_settings()
+        cached = dict(settings.get("default_banners") or {})
+        cached[photo[len(BUNDLED):]] = file_id
+        await db.set_setting("default_banners", cached)
 
 
 async def save_screen(db: DB, key: str, text: str | None = None, photo_file_id: str | None | bool = False) -> None:
@@ -236,10 +281,12 @@ async def send(bot: Bot, chat_id: int, key: str, db: DB, icons: Icons, cfg: Conf
                user_id: int | None = None) -> Message:
     text, photo, markup = await render(key, db, icons, cfg, name, user_id or chat_id)
     try:
-        return await bot.send_rich_message(chat_id, rich.build(text, photo), reply_markup=markup)
+        msg = await bot.send_rich_message(chat_id, rich.build(text, photo_media(photo)), reply_markup=markup)
     except TelegramBadRequest as e:
         _rich_failed(e)
-    return await _send_classic(bot, chat_id, text, photo, markup)
+        msg = await _send_classic(bot, chat_id, text, photo, markup, db)
+    await _remember_banner(db, photo, msg)
+    return msg
 
 
 def _rich_failed(e: TelegramBadRequest) -> None:
@@ -248,12 +295,13 @@ def _rich_failed(e: TelegramBadRequest) -> None:
     RICH_ERRORS.update(at=time.time(), error=e.message)
 
 
-async def _send_classic(bot: Bot, chat_id: int, text: str, photo: str | None, markup) -> Message:
+async def _send_classic(bot: Bot, chat_id: int, text: str, photo: str | None, markup, db: DB) -> Message:
     classic = rich.to_classic(text)
+    media = photo_media(photo)
     if photo and rich.plain_length(classic) <= MAX_CAPTION:
-        return await bot.send_photo(chat_id, photo, caption=classic, reply_markup=markup)
+        return await bot.send_photo(chat_id, media, caption=classic, reply_markup=markup)
     if photo:
-        await bot.send_photo(chat_id, photo)
+        await _remember_banner(db, photo, await bot.send_photo(chat_id, media))
     return await bot.send_message(chat_id, classic, reply_markup=markup)
 
 
@@ -261,7 +309,8 @@ async def navigate(message: Message, key: str, db: DB, icons: Icons, cfg: Config
                    user_id: int | None = None) -> None:
     """Переход на экран в том же сообщении (если можно), иначе — новое сообщение."""
     text, photo, markup = await render(key, db, icons, cfg, name, user_id or message.chat.id)
-    if getattr(message, "rich_message", None) is not None:
+    # стандартный баннер ещё не залит — проще отправить заново, чем заливать файл в редактирование
+    if getattr(message, "rich_message", None) is not None and not (photo or "").startswith(BUNDLED):
         try:
             await message.bot.edit_message_text(
                 chat_id=message.chat.id, message_id=message.message_id,

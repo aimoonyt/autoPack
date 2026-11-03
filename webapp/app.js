@@ -1004,6 +1004,8 @@ function renderScreenEditor() {
   const sc = currentScreen();
   $("scPhotoBox").replaceChildren(sc.photo ? h("img", { src: sc.photo }) : h("div", { class: "muted small" }, "Без баннера"));
   $("scPhotoRemove").classList.toggle("hidden", !sc.photo);
+  $("scPhotoRestore").classList.toggle("hidden", sc.default_photo);
+  $("scPhotoNote").textContent = sc.default_photo && sc.photo ? "Стандартный баннер XMAPKET" : "";
   if (document.activeElement !== $("scText") || $("scText").dataset.key !== sc.key) {
     $("scText").value = sc.text;
     $("scText").dataset.key = sc.key;
@@ -1062,6 +1064,7 @@ $("scPhotoInput").addEventListener("change", async (e) => {
   renderAdmin();
 });
 $("scPhotoRemove").addEventListener("click", () => saveScreen({ remove_photo: true }, "Баннер убран").catch(() => {}));
+$("scPhotoRestore").addEventListener("click", () => saveScreen({ restore_photo: true }, "Вернул стандартный баннер").catch(() => {}));
 
 // ---------- спамблок: диалоги и чат ----------
 const KIND_LABEL = { photo: "Фото", sticker: "Стикер", video: "Видео", animation: "GIF", video_note: "Кружок", voice: "Голосовое", audio: "Аудио", document: "Файл" };

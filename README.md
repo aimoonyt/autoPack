@@ -36,6 +36,8 @@ Telegram-бот, который собирает стикерпаки из то�
    python -m venv .venv && .venv/bin/pip install -r requirements.txt && .venv/bin/python -m app.main
    ```
 
+**Windows, в один клик:** заполни в `.env` только `BOT_TOKEN`, установи `cloudflared` (`winget install --id Cloudflare.cloudflared`) и дважды кликни `start.bat`. Он сам поставит зависимости при первом запуске, поднимет туннель, впишет свежий адрес в `WEBAPP_URL` и запустит бота. Закрыл окно — всё остановилось.
+
 При старте бот сам выставляет команды и кнопку меню с мини-аппом. Бот работает на long polling, вебхук не нужен — HTTPS нужен только для мини-аппа.
 
 ## Устройство

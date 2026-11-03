@@ -188,6 +188,39 @@ class Api:
             await self.db.delete_inbox(uid, ids)
         return await self.pack_response(request, pack["id"])
 
+    async def create_pack_upload(self, request: web.Request) -> web.Response:
+        """Новый набор сразу из загруженного файла (когда во входящих пусто)."""
+        uid = self.user_id(request)
+        reader = await request.multipart()
+        data, filename, title, emojis = None, "file", "", []
+        async for part in reader:
+            if part.name == "file":
+                filename = part.filename or "file"
+                data = await part.read(decode=False)
+                if len(data) > MAX_UPLOAD:
+                    raise PackError("Файл больше 10 МБ")
+            elif part.name == "title":
+                title = await part.text()
+            elif part.name == "emojis":
+                emojis = (await part.text()).split()
+        if not data:
+            raise PackError("Файл не пришёл")
+        title = await self.svc.check_title(title, uid)  # проверяем до заливки файла
+        fmt = {".tgs": "animated", ".webm": "video"}.get(Path(filename).suffix.lower(), "static")
+        async with self.svc.lock(uid):
+            file_id = await self.svc.upload(uid, data, fmt, filename)
+            pack = await self.svc.create(uid, title, [self.svc.make_input(file_id, fmt, emojis)])
+        return await self.pack_response(request, pack["id"])
+
+    async def create_pack_pending(self, request: web.Request) -> web.Response:
+        """Название задано в мини-апке, набор создастся с первого стикера, кинутого боту."""
+        uid = self.user_id(request)
+        title = await self.svc.check_title((await request.json()).get("title"), uid)
+        await self.db.set_active(uid, None)
+        await self.db.set_mode(uid, None)
+        await self.db.set_pending(uid, title)
+        return web.json_response({"ok": True, "title": title})
+
     async def update_pack(self, request: web.Request) -> web.Response:
         pack = await self.owned_pack(request)
         body = await request.json()
@@ -647,6 +680,8 @@ def build_app(bot: Bot, db: DB, svc: PackService, icons: Icons, caster: Broadcas
     r.add_get("/api/me", api.me)
     r.add_get("/api/icons", api.icons_handler)
     r.add_post("/api/packs", api.create_pack)
+    r.add_post("/api/packs/new/upload", api.create_pack_upload)
+    r.add_post("/api/packs/new/pending", api.create_pack_pending)
     r.add_get("/api/packs/{name}", api.get_pack)
     r.add_patch("/api/packs/{name}", api.update_pack)
     r.add_delete("/api/packs/{name}", api.delete_pack)

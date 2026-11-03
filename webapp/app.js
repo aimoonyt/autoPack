@@ -390,35 +390,78 @@ $("newPackBtn").addEventListener("click", () => newPackSheet(new Set()));
 
 function newPackSheet(selected) {
   const { inbox, max_title, suffix, price } = state.me;
-  const title = h("input", { class: "field text", placeholder: "Название набора", maxlength: String(max_title) });
-  const create = h("button", { class: "btn primary wide" });
-  const refresh = () => {
-    create.disabled = !selected.size;
-    create.textContent = selected.size ? `Создать (${selected.size})` : "Выбери стикеры";
-  };
-  create.addEventListener("click", async () => {
+  const title = h("input", { class: "field text", placeholder: "Название набора", maxlength: String(max_title), enterkeyhint: "done" });
+  const getTitle = () => {
     const t = title.value.trim();
-    if (!t) { toast("Введи название"); title.focus(); return; }
-    closeSheet();
-    const pack = await withBusy("Создаю набор…", () =>
-      api("POST", "/api/packs", { title: t, inbox_ids: [...selected] }));
+    if (!t) { toast("Сначала введи название"); title.focus(); haptic("medium"); }
+    return t;
+  };
+  const done = (pack) => {
     state.inboxSelected.clear();
     state.inboxSelect = false;
     success();
     showPack(pack);
+  };
+
+  // 1) из входящих
+  const create = h("button", { class: "btn primary wide" });
+  const refresh = () => {
+    create.disabled = !selected.size;
+    create.replaceChildren(ic("check"), selected.size ? ` Создать из выбранных (${selected.size})` : " Отметь стикеры выше");
+  };
+  create.addEventListener("click", async () => {
+    const t = getTitle();
+    if (!t || !selected.size) return;
+    closeSheet();
+    done(await withBusy("Создаю набор…", () => api("POST", "/api/packs", { title: t, inbox_ids: [...selected] })));
   });
   refresh();
+
+  // 2) из файла
+  const file = h("input", { type: "file", accept: "image/*,.tgs,.webm", hidden: true });
+  const uploadBtn = h("label", { class: "btn wide" + (inbox.length ? "" : " primary") }, ic("upload"), " Создать из картинки", file);
+  uploadBtn.addEventListener("click", (e) => { if (!title.value.trim()) { e.preventDefault(); getTitle(); } });
+  file.addEventListener("change", async () => {
+    const f = file.files[0];
+    file.value = "";
+    const t = getTitle();
+    if (!f || !t) return;
+    const fd = new FormData();
+    fd.append("title", t);
+    fd.append("emojis", "🙂");
+    fd.append("file", f, f.name);
+    closeSheet();
+    done(await withBusy("Создаю набор…", () => api("POST", "/api/packs/new/upload", fd)));
+  });
+
+  // 3) через бота
+  const viaBot = h("button", { class: "btn wide" }, ic("chat"), " Кинуть стикеры боту");
+  viaBot.addEventListener("click", async () => {
+    const t = getTitle();
+    if (!t) return;
+    await withBusy("", () => api("POST", "/api/packs/new/pending", { title: t }));
+    closeSheet();
+    success();
+    const msg = `Набор «${t}» ждёт стикеры. Кинь боту первый стикер или картинку — с него набор и создастся, остальные полетят туда же.`;
+    if (tg?.showAlert) tg.showAlert(msg, () => tg.close()); else toast(msg);
+  });
+
+  title.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    if (selected.size) create.click(); else title.blur();
+  });
+
   openSheet(
     h("h3", {}, "Новый набор"),
     title,
     max_title < 64
       ? h("p", { class: "muted small" }, `До ${max_title} символов: к названию добавится «${suffix.trim()}». Убрать — ${price} звёзд за набор.`)
       : null,
-    inbox.length
-      ? [h("p", { class: "muted small" }, "Выбери стикеры из входящих (нужен хотя бы один):"),
-         inboxPicker(inbox, selected, refresh), create]
-      : h("p", { class: "muted" },
-          "Входящие пустые. Кинь боту стикеры без активного набора (или /new Название прямо в боте) — и они появятся тут."),
+    h("p", { class: "muted small" }, "В наборе должен быть хотя бы один стикер. Выбери, откуда его взять:"),
+    inbox.length ? [h("div", { class: "lbl" }, ic("inbox"), " Из входящих"), inboxPicker(inbox, selected, refresh), create] : null,
+    uploadBtn,
+    viaBot,
   );
   title.focus();
 }

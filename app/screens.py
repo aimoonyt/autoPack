@@ -20,6 +20,7 @@ from aiogram.types import (
 
 from .config import Config
 from .db import DB
+from . import rich
 from .icons import Icons
 
 log = logging.getLogger(__name__)
@@ -38,66 +39,93 @@ DEFAULT_ORDER_LINKS = {
     "video": "https://t.me/m/y-vh5NYEZmUy",
 }
 
+# Разметка — см. app/rich.py: «# » заголовок в плашке, [[ ]] плашка по центру, [banner] место баннера.
 DEFAULT_TEXTS = {
-    # стиль Absolute Cinema: заголовок, строки «иконка + поле: значение»
+    # как Absolute Cinema: баннер, строки «иконка + поле: значение»
     "menu": (
-        "{big:XMAPKET}\n\n"
-        "{ic:sparkle} Добро пожаловать, <b>{name}</b>\n"
+        "[banner]\n"
+        "Добро пожаловать в {xm} <b>XMAPKET</b>\n"
         "{ic:user} ID: <code>{id}</code>\n"
         "{ic:pack} Наборов: <b>{packs}</b>\n"
         "{ic:unlock} Без подписи: <b>{paid}</b>\n"
         "{ic:inbox} Во входящих: <b>{inbox}</b>\n"
-        "{ic:link} Переходник: @XMAPKET\n\n"
+        "{ic:link} Переходник: @XMAPKET\n"
         "Выберите действие:"
     ),
-    # стиль BLUEBLACK: заголовок буквами, блоки-цитаты с жирными строками
+    # как BLUEBLACK: заголовки буквами в плашках, плашки с текстом по центру, баннер посередине
     "packer": (
-        "{big:STICKERS}\n\n"
-        "<blockquote><b>{ic:add} Жми «Новый набор» и придумай название\n"
+        "# {big:STICKERS}\n"
+        "[[\n"
+        "<i>Соберу стикерпак из всего, что ты кинешь:</i>\n"
+        "{ic:add} Жми «Новый набор» и придумай название\n"
         "{ic:upload} Кидай стикеры, фото, картинки — можно пачкой\n"
-        "{ic:check} Готово: набор в Telegram, ссылка у тебя</b></blockquote>\n\n"
-        "<blockquote>{ic:edit} Редактор: порядок, эмодзи, название, удаление\n"
-        "{ic:star} Убрать подпись бота и сменить ссылку — <b>{price}</b> звёзд за набор</blockquote>"
+        "{ic:check} Готово — набор в Telegram, ссылка у тебя\n"
+        "]]\n"
+        "[banner]\n"
+        "# {big:EDITOR}\n"
+        "[[\n"
+        "{ic:edit} Порядок, эмодзи, название, удаление\n"
+        "{ic:star} Без подписи и своя ссылка — <b>{price}</b> звёзд за набор {xm}\n"
+        "]]"
     ),
     "chat": (
-        "{big:SPAMBLOCK}\n\n"
-        "<blockquote><b>{ic:chat} Пиши сюда, как мне в личку\n"
+        "# {big:SPAMBLOCK}\n"
+        "[[\n"
+        "<i>Не можешь написать мне в личку?</i>\n"
+        "{ic:chat} Пиши сюда — как мне в лс\n"
         "{ic:image} Текст, фото, голосовые, видео, стикеры\n"
-        "{ic:check} Ответ придёт в этот чат</b></blockquote>\n\n"
-        "{ic:back} Выйти — «Назад в меню»"
+        "{ic:check} Ответ придёт в этот чат {xm}\n"
+        "]]\n"
+        "[banner]\n"
+        "~ Выйти из чата — «Назад в меню»"
     ),
     "info": (
-        "{big:WELLCOME}\n\n"
-        "{ic:sparkle} Это мой переходник, тут есть вся необходимая информация\n\n"
-        "{ic:emoji} Заказать эмодзи: https://t.me/m/F4b0iYCwZmYy\n"
-        "{ic:video} Заказать видео: https://t.me/m/y-vh5NYEZmUy\n\n"
-        "{ic:money} <b>ПРАЙС</b> {ic:money}\n"
-        "<blockquote><b>Эмодзи шаблонные</b>\n"
-        "1. <i>До 30 шт - 100р/1$/шт</i>\n"
-        "2. <i>Более 30шт - 90р/0.9$/шт</i>\n"
+        "# {big:WELLCOME}\n"
+        "[[\n"
+        "Это мой переходник, тут есть вся необходимая информация {xm}\n"
+        "{ic:emoji} <a href=\"https://t.me/m/F4b0iYCwZmYy\">Заказать эмодзи</a>\n"
+        "{ic:video} <a href=\"https://t.me/m/y-vh5NYEZmUy\">Заказать видео</a>\n"
+        "]]\n"
+        "[banner]\n"
+        "# {big:PRICE}\n"
+        "[[\n"
+        "<b>Эмодзи шаблонные</b>\n"
+        "<i>До 30 шт - 100р/1$/шт</i>\n"
+        "<i>Более 30шт - 90р/0.9$/шт</i>\n"
         "<b>Эмодзи кастомные</b>\n"
-        "1. На основе шаблона от 200р/2$\n"
-        "2. Полностью кастомный от 300р/3$\n"
+        "На основе шаблона от 200р/2$\n"
+        "Полностью кастомный от 300р/3$\n"
         "<b>Видео</b>\n"
-        "1. <i>От 500р/6$</i></blockquote>\n\n"
-        "{ic:pack} <b><i>Шаблоны</i></b> {ic:pack}\n"
-        "<blockquote>{ic:emoji} Эмодзи: https://t.me/addemoji/XMAPKETemojis\n"
-        "{ic:fire} Символы: https://t.me/addemoji/XMAPKETsymbols</blockquote>\n\n"
-        "{ic:check} Правки <b>входят</b> в стоимость заказа {ic:check}\n\n"
-        "{ic:user} <b>ЛИЧКА</b> {ic:user}\n"
-        "Я - @XMAPKET {ic:sparkle}\n"
-        "Менеджер(если я не отвечаю) - @XMAPKETmngr\n\n"
-        "{ic:image} <b>РАБОТЫ</b> {ic:image}\n"
-        "@XMAPKETwrk"
+        "<i>От 500р/6$</i>\n"
+        "]]\n"
+        "# {big:TEMPLATES}\n"
+        "[[\n"
+        "{ic:emoji} <a href=\"https://t.me/addemoji/XMAPKETemojis\">Эмодзи</a>\n"
+        "{ic:fire} <a href=\"https://t.me/addemoji/XMAPKETsymbols\">Символы</a>\n"
+        "Правки <b>входят</b> в стоимость заказа {xm}\n"
+        "]]\n"
+        "# {big:CONTACTS}\n"
+        "[[\n"
+        "Я — @XMAPKET {xm}\n"
+        "Менеджер (если я не отвечаю) — @XMAPKETmngr\n"
+        "Работы — @XMAPKETwrk\n"
+        "]]"
     ),
     "order": (
-        "{big:ORDER}\n\n"
-        "<blockquote><b>{ic:image} Баннер — шапки, обложки, превью\n"
-        "{ic:emoji} Эмодзи — шаблонные и кастомные\n"
-        "{ic:video} Видео — анимации и ролики</b></blockquote>\n\n"
-        "{ic:down} Жми — откроется чат с готовым сообщением"
+        "# {big:ORDER}\n"
+        "[[\n"
+        "{ic:image} <b>Баннер</b> — шапки, обложки, превью\n"
+        "{ic:emoji} <b>Эмодзи</b> — шаблонные и кастомные\n"
+        "{ic:video} <b>Видео</b> — анимации и ролики\n"
+        "]]\n"
+        "[banner]\n"
+        "~ Жми кнопку — откроется чат с готовым сообщением"
     ),
 }
+
+# все буквы, которые нужны заголовкам по умолчанию
+HEADING_LETTERS = "".join(sorted({ch for t in DEFAULT_TEXTS.values()
+                                  for w in re.findall(r"\{big:([^}]*)\}", t) for ch in w.upper() if ch.isalnum()}))
 
 MAX_CAPTION = 1024
 _TAGS = re.compile(r"<[^>]+>")
@@ -130,9 +158,6 @@ async def save_screen(db: DB, key: str, text: str | None = None, photo_file_id: 
         screen["text"] = text
     if photo_file_id is not False:
         screen["photo_file_id"] = photo_file_id
-    photo = screen.get("photo_file_id")
-    if photo and visible_length(screen.get("text") or DEFAULT_TEXTS[key]) > MAX_CAPTION:
-        raise ValueError(f"С баннером текст максимум {MAX_CAPTION} символов — Telegram не даст больше в подписи к фото")
     stored[key] = screen
     await db.set_setting("screens", stored)
 
@@ -194,30 +219,49 @@ async def render(key: str, db: DB, icons: Icons, cfg: Config, name: str,
     return text, screens[key]["photo_file_id"], await keyboard(key, db, icons, cfg)
 
 
+RICH_ERRORS: dict[str, object] = {"at": 0.0, "error": None}  # для подсказки в админке
+
+
 async def send(bot: Bot, chat_id: int, key: str, db: DB, icons: Icons, cfg: Config, name: str,
                user_id: int | None = None) -> Message:
     text, photo, markup = await render(key, db, icons, cfg, name, user_id or chat_id)
+    try:
+        return await bot.send_rich_message(chat_id, rich.build(text, photo), reply_markup=markup)
+    except TelegramBadRequest as e:
+        _rich_failed(e)
+    return await _send_classic(bot, chat_id, text, photo, markup)
+
+
+def _rich_failed(e: TelegramBadRequest) -> None:
+    import time
+    log.warning("rich message rejected, sending classic: %s", e.message)
+    RICH_ERRORS.update(at=time.time(), error=e.message)
+
+
+async def _send_classic(bot: Bot, chat_id: int, text: str, photo: str | None, markup) -> Message:
+    classic = rich.to_classic(text)
+    if photo and rich.plain_length(classic) <= MAX_CAPTION:
+        return await bot.send_photo(chat_id, photo, caption=classic, reply_markup=markup)
     if photo:
-        return await bot.send_photo(chat_id, photo, caption=text, reply_markup=markup)
-    return await bot.send_message(chat_id, text, reply_markup=markup)
+        await bot.send_photo(chat_id, photo)
+    return await bot.send_message(chat_id, classic, reply_markup=markup)
 
 
 async def navigate(message: Message, key: str, db: DB, icons: Icons, cfg: Config, name: str,
                    user_id: int | None = None) -> None:
     """Переход на экран в том же сообщении (если можно), иначе — новое сообщение."""
     text, photo, markup = await render(key, db, icons, cfg, name, user_id or message.chat.id)
-    has_photo = bool(message.photo)
-    try:
-        if photo and has_photo:
-            await message.edit_media(InputMediaPhoto(media=photo, caption=text, parse_mode="HTML"), reply_markup=markup)
+    if getattr(message, "rich_message", None) is not None:
+        try:
+            await message.bot.edit_message_text(
+                chat_id=message.chat.id, message_id=message.message_id,
+                rich_message=rich.build(text, photo), reply_markup=markup,
+            )
             return
-        if not photo and not has_photo and message.text is not None:
-            await message.edit_text(text, reply_markup=markup)
-            return
-    except TelegramBadRequest as e:
-        if "not modified" in (e.message or ""):
-            return
-        log.info("can't edit screen, resending: %s", e.message)
+        except TelegramBadRequest as e:
+            if "not modified" in (e.message or ""):
+                return
+            log.info("can't edit rich screen, resending: %s", e.message)
     try:
         await message.delete()
     except TelegramBadRequest:

@@ -74,43 +74,57 @@ class Icons:
         # Бот: если по смыслу эмодзи не нашлось, всё равно берём эмодзи из набора, а не обычный
         self.fill_unmatched = fill_unmatched
         self.letters: dict[str, str] = {}
+        self.accent: list[dict] = []   # твои эмодзи для редких акцентов {xm}
+        self.accent_name: str | None = None
+        self._xm = 0
         self.pack_name: str | None = None
         self.items: list[dict] = []          # все эмодзи набора
         self.by_id: dict[str, dict] = {}
         self.resolved: dict[str, dict] = {}  # slot -> item
         self.custom_in_bot = True
         self.errors: list[str] = []
+        self.accent_errors: list[str] = []
         self._fetched = 0.0
+
+    async def _load(self, names: str) -> tuple[list[dict], list[str]]:
+        items, errors = [], []
+        # можно несколько наборов через запятую или пробел, первые в приоритете
+        for one in [n for n in re.split(r"[\s,]+", names or "") if n]:
+            one = one.rstrip("/").rsplit("/", 1)[-1]
+            try:
+                ss = await tg(self.bot.get_sticker_set, name=one)
+                items += [
+                    {
+                        "id": s.custom_emoji_id,
+                        "emoji": s.emoji or "",
+                        "format": sticker_format(s),
+                        "file_id": s.file_id,
+                        "thumb_id": s.thumbnail.file_id if s.thumbnail else None,
+                        "pack": one,
+                    }
+                    for s in ss.stickers if s.custom_emoji_id
+                ]
+            except TelegramBadRequest as e:
+                log.warning("icon pack %s: %s", one, e.message)
+                errors.append(one)
+        return items, errors
 
     async def refresh(self, force: bool = False) -> None:
         settings = await self.db.get_settings()
+        if self.fill_unmatched:  # только у бота
+            accent_name = (settings.get("accent_pack") or "").strip()
+            if force or accent_name != self.accent_name or time.time() - self._fetched > TTL:
+                self.accent_name = accent_name
+                self.accent, accent_errors = await self._load(accent_name)
+                self.accent_errors = accent_errors
         self.custom_in_bot = bool(settings.get("bot_custom_emoji", True))
         name = (settings.get(self.pack_key) or "").strip()
         if force or name != self.pack_name or time.time() - self._fetched > TTL:
             self.pack_name = name
-            self.items = []
-            self.errors = []
-            # можно несколько наборов через запятую или пробел, первые в приоритете
-            for one in [n for n in re.split(r"[\s,]+", name) if n]:
-                one = one.rstrip("/").rsplit("/", 1)[-1]
-                try:
-                    ss = await tg(self.bot.get_sticker_set, name=one)
-                    self.items += [
-                        {
-                            "id": s.custom_emoji_id,
-                            "emoji": s.emoji or "",
-                            "format": sticker_format(s),
-                            "file_id": s.file_id,
-                            "thumb_id": s.thumbnail.file_id if s.thumbnail else None,
-                            "pack": one,
-                        }
-                        for s in ss.stickers if s.custom_emoji_id
-                    ]
-                except TelegramBadRequest as e:
-                    log.warning("icon pack %s: %s", one, e.message)
-                    self.errors.append(one)
+            self.items, self.errors = await self._load(name)
             self._fetched = time.time()
             self.by_id = {i["id"]: i for i in self.items}
+        self.by_id.update({i["id"]: i for i in self.accent if i["id"] not in self.by_id})
         overrides = settings.get(self.map_key) or {}
         letter_ids = set((settings.get("letters") or {}).values()) if self.fill_unmatched else set()
         self.resolved = {}
@@ -136,6 +150,8 @@ class Icons:
                     continue
                 self.resolved[slot] = spare.pop(0)
         self.letters = {k: v for k, v in (settings.get("letters") or {}).items() if v}
+        letter_set = set(self.letters.values())
+        self.accent_pool = [i for i in self.accent if i["id"] not in letter_set]
 
     def big(self, text: str) -> str:
         """Заголовок буквами-эмодзи (как WELLCOME в переходнике). Нет букв — жирный капс."""
@@ -155,6 +171,16 @@ class Icons:
                 out.append(f"<b>{html.escape(ch)}</b>")
         return "".join(out)
 
+    def xm(self) -> str:
+        """Акцент твоим эмодзи — по очереди из набора (для редких вставок)."""
+        pool = getattr(self, "accent_pool", [])
+        if not pool or not self.custom_in_bot:
+            return ""
+        item = pool[self._xm % len(pool)]
+        self._xm += 1
+        fb = html.escape(item["emoji"] or "✨")
+        return f'<tg-emoji emoji-id="{item["id"]}">{fb}</tg-emoji>'
+
     def fallback(self, slot: str) -> str:
         return SLOTS[slot][1][0]
 
@@ -170,6 +196,7 @@ class Icons:
         """Подставляет {ic:слот} и {name}/{price}/... в тексты экранов."""
         text = _PLACEHOLDER.sub(lambda m: self.e(m.group(1)) if m.group(1) in SLOTS else m.group(0), text)
         text = _BIG.sub(lambda m: self.big(m.group(1)), text)
+        text = re.sub(r"\{xm\}", lambda m: self.xm(), text)
         for key, value in values.items():
             text = text.replace("{" + key + "}", value)
         return text

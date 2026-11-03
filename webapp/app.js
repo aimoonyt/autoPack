@@ -822,12 +822,15 @@ function renderAdmin() {
   if (b.running) setTimeout(() => state.adminTab === "post" && !$("admin").classList.contains("hidden") && refreshAdmin(), 3000);
 
   // оформление
-  $("lettersInfo").textContent = a.letters ? `Знаю буквы: ${a.letters}` : "Буквы ещё не заданы — заголовки будут жирным капсом";
+  const missing = [...(a.heading_letters || "")].filter((ch) => !(a.letters || "").includes(ch)).join("");
+  $("lettersInfo").textContent = (a.letters ? `Знаю буквы: ${a.letters}` : "Буквы ещё не заданы — заголовки будут жирным капсом")
+    + (missing ? `. Для заголовков не хватает: ${missing}` : ". Для всех заголовков хватает");
   $("lettersReset").classList.toggle("hidden", !a.letters);
   const rej = a.emoji_rejected_at && a.emoji_rejected_at > Date.now() / 1000 - 86400 * 3;
   $("emojiRejected").classList.toggle("hidden", !rej);
   if (rej) $("emojiRejected").textContent = `Telegram отклонил премиум-эмодзи в сообщении бота (${fmtDate(a.emoji_rejected_at)}) — бот отправил обычные. Так бывает, если у владельца бота нет Telegram Premium.`;
   $("iconPack").value = a.settings.icon_pack;
+  $("accentPack").value = a.settings.accent_pack;
   $("appIconPack").value = a.settings.app_icon_pack;
   $("botCustomEmoji").checked = a.settings.bot_custom_emoji;
   const scopeApp = state.lookScope === "app";
@@ -960,7 +963,7 @@ function lookIcon(slot) {
   if (s?.icon) return h("span", { class: "ic ic-pack" }, media(s.icon));
   return state.lookScope === "app" ? svgIcon(slot) : h("span", { class: "ic ic-text" }, s?.fallback || "");
 }
-$("saveIconPack").addEventListener("click", () => saveLook({ icon_pack: $("iconPack").value, app_icon_pack: $("appIconPack").value }, "Загружаю наборы…").then(() => toast("Применено")).catch(() => {}));
+$("saveIconPack").addEventListener("click", () => saveLook({ icon_pack: $("iconPack").value, accent_pack: $("accentPack").value, app_icon_pack: $("appIconPack").value }, "Загружаю наборы…").then(() => toast("Применено")).catch(() => {}));
 $("lettersCapture").addEventListener("click", () => capture("letters", "уроком букв: первая строка — буквы текстом, вторая — те же буквы эмодзи").catch(() => {}));
 $("lettersReset").addEventListener("click", async () => {
   if (!(await confirmBox("Забыть все буквы?"))) return;
@@ -1011,6 +1014,9 @@ function renderScreenEditor() {
   $("olEmoji").value = a.order_links.emoji;
   $("olVideo").value = a.order_links.video;
   updateScreenHint();
+  const re = a.rich_error;
+  $("richError").classList.toggle("hidden", !re);
+  if (re) $("richError").textContent = `Telegram не принял оформление блоками (${fmtDate(re.at)}): ${re.error}. Бот отправил обычное сообщение. Скинь этот текст разработчику.`;
 }
 
 function visibleLength(text) {
@@ -1022,7 +1028,7 @@ function updateScreenHint() {
   const sc = state.admin && currentScreen();
   if (!sc) return;
   const len = visibleLength($("scText").value);
-  $("scTextHint").textContent = sc.photo ? `${len}/1024 (с баннером Telegram даёт максимум 1024)` : `${len} символов`;
+  $("scTextHint").textContent = `${len} символов`;
 }
 $("scText").addEventListener("input", updateScreenHint);
 

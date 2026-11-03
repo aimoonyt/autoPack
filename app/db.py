@@ -91,7 +91,9 @@ MIGRATIONS = {
 DEFAULT_SETTINGS: dict[str, Any] = {
     "price": 15,
     "suffix": " || @stikcerpack_bot by @xmapket",
-    "icon_pack": "XMAPKETemojis, XMAPKETsymbols",
+    # оформление бота — iOS-иконки, твои эмодзи — редкими акцентами {xm}, буквы — из символов
+    "icon_pack": "tgmacicons",
+    "accent_pack": "XMAPKETemojis, XMAPKETsymbols",
     "icon_map": {},
     # иконки мини-апки — отдельный набор в стиле iOS-интерфейса Telegram
     "app_icon_pack": "tgmacicons",
@@ -127,10 +129,10 @@ class DB:
                 if col not in existing:
                     await self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
         await self.conn.execute("UPDATE packs SET base_title=title WHERE base_title IS NULL")
-        # переезд с дефолтного набора иконок первой версии на наборы XMAPKET
+        # прошлый дефолт ставил наборы XMAPKET основными — теперь основное оформление iOS-иконками
         await self.conn.execute(
             "UPDATE settings SET value=? WHERE key='icon_pack' AND value=?",
-            (json.dumps(DEFAULT_SETTINGS["icon_pack"]), json.dumps("tgmacicons")),
+            (json.dumps(DEFAULT_SETTINGS["icon_pack"]), json.dumps("XMAPKETemojis, XMAPKETsymbols")),
         )
         await self.conn.commit()
 

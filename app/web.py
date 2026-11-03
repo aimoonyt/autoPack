@@ -159,7 +159,7 @@ class Api:
         if self.svc.is_admin(self.user_id(request)):
             data["all"] = [
                 {"id": i["id"], "emoji": i["emoji"], **self.ser_media(i["file_id"], i["thumb_id"], i["format"])}
-                for i in icons.items
+                for i in icons.items + [a for a in icons.accent if a["id"] not in {x["id"] for x in icons.items}]
             ]
         return web.json_response(data)
 
@@ -351,6 +351,7 @@ class Api:
                 "icon_pack": settings["icon_pack"],
                 "icon_map": settings["icon_map"],
                 "app_icon_pack": settings["app_icon_pack"],
+                "accent_pack": settings["accent_pack"],
                 "app_icon_map": settings["app_icon_map"],
                 "bot_custom_emoji": settings["bot_custom_emoji"],
             },
@@ -367,6 +368,10 @@ class Api:
             "app_icon_errors": self.app_icons.errors,
             "letters": "".join(sorted((settings.get("letters") or {}).keys())),
             "emoji_rejected_at": int(STRIPPED["at"]) or None,
+            "heading_letters": screens.HEADING_LETTERS,
+            "accent_errors": self.icons.accent_errors,
+            "rich_error": {"at": int(screens.RICH_ERRORS["at"]), "error": screens.RICH_ERRORS["error"]}
+            if screens.RICH_ERRORS["at"] else None,
             "unread": await self.db.unread_total(),
             "screens": await self.ser_screens(),
             "order_links": await screens.get_order_links(self.db),
@@ -543,13 +548,15 @@ class Api:
             await self.db.set_setting("bot_custom_emoji", bool(body["bot_custom_emoji"]))
         if body.get("reset_letters"):
             await self.db.set_setting("letters", {})
+        if "accent_pack" in body:
+            await self.db.set_setting("accent_pack", str(body["accent_pack"]).strip())
         if "app_icon_pack" in body:
             await self.db.set_setting("app_icon_pack", str(body["app_icon_pack"]).strip())
         for key in ("icon_map", "app_icon_map"):
             if key in body and isinstance(body[key], dict):
                 clean = {k: str(v) for k, v in body[key].items() if k in SLOTS and v}
                 await self.db.set_setting(key, clean)
-        await self.icons.refresh(force="icon_pack" in body)
+        await self.icons.refresh(force="icon_pack" in body or "accent_pack" in body)
         await self.app_icons.refresh(force="app_icon_pack" in body)
         return await self.admin_state(request)
 

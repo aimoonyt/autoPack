@@ -150,7 +150,15 @@
         <button id="scCapture" class="btn"><span data-ic="copy"></span> Взять из сообщения</button>
       </div>
       <button id="scReset" class="btn danger wide">Вернуть стандартный текст</button>
-      <p class="muted small">{big:ТЕКСТ} — заголовок буквами-эмодзи, {name} — имя, {id} — ID, {packs} — наборов, {paid} — без подписи, {inbox} — во входящих, {price} — цена доступа, {ic:star} — иконка из набора (список слотов во вкладке «Оформление»). Премиум-эмодзи проще всего так: оформи пост в Telegram как хочешь, нажми «Взять из сообщения» и перешли его боту — он сохранит всё как есть, с эмодзи и форматированием.</p>
+      <div id="richError" class="note hidden"></div>
+      <div class="note small">
+        <b>Разметка экрана</b> (как посты BLUEBLACK):<br>
+        <code># Заголовок</code> — заголовок в плашке по центру<br>
+        <code>[[</code> … <code>]]</code> — плашка, строки внутри по центру<br>
+        <code>[banner]</code> — место баннера (без него баннер сверху)<br>
+        <code>---</code> — разделитель, <code>&gt; текст</code> — цитата, <code>~ текст</code> — мелкая подпись
+      </div>
+      <p class="muted small">{big:ТЕКСТ} — заголовок буквами-эмодзи, {xm} — твоё эмодзи-акцент, {name} — имя, {id} — ID, {packs} — наборов, {paid} — без подписи, {inbox} — во входящих, {price} — цена доступа, {ic:star} — иконка из набора (список слотов во вкладке «Оформление»). Премиум-эмодзи проще всего так: оформи пост в Telegram как хочешь, нажми «Взять из сообщения» и перешли его боту — он сохранит всё как есть, с эмодзи и форматированием.</p>
     </section>
 
     <section data-pane="stats" class="pane">
@@ -212,8 +220,10 @@
       <div class="card">
         <label class="lbl">Иконки мини-апки</label>
         <input id="appIconPack" class="field text" placeholder="tgmacicons">
-        <label class="lbl">Премиум-эмодзи в сообщениях бота</label>
-        <input id="iconPack" class="field text" placeholder="XMAPKETemojis, XMAPKETsymbols">
+        <label class="lbl">Иконки в сообщениях бота</label>
+        <input id="iconPack" class="field text" placeholder="tgmacicons">
+        <label class="lbl">Твои эмодзи — акценты {xm} и буквы</label>
+        <input id="accentPack" class="field text" placeholder="XMAPKETemojis, XMAPKETsymbols">
         <div class="muted small">Имена или ссылки t.me/addemoji/… через запятую. Иконка ищется сначала в первом наборе.</div>
         <button id="saveIconPack" class="btn primary wide"><span data-ic="check"></span> Применить</button>
       </div>

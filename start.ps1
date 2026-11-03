@@ -19,8 +19,22 @@ if (-not (Test-Path ".venv\Scripts\python.exe")) {
 # Log goes next to the bot: TEMP breaks on non-latin user names (C:\Users\A5A3~1)
 $dataDir = Join-Path $PSScriptRoot "data"
 if (-not (Test-Path -LiteralPath $dataDir)) { New-Item -ItemType Directory -Path $dataDir | Out-Null }
-$log = Join-Path $dataDir "cloudflared.log"
-if (Test-Path -LiteralPath $log) { Remove-Item -LiteralPath $log -Force }
+
+# If the window was closed with the X, the hidden tunnel from the last run is still alive.
+# Kill it, otherwise it keeps the old URL and locks the log file.
+Get-CimInstance Win32_Process -Filter "Name='cloudflared.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.CommandLine -like "*localhost:8080*" } |
+    ForEach-Object {
+        Write-Host "Stopping old tunnel (pid $($_.ProcessId))..." -ForegroundColor Yellow
+        Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+    }
+Start-Sleep -Milliseconds 500
+
+# Old logs: delete what we can, skip what is still locked
+Get-ChildItem -LiteralPath $dataDir -Filter "cloudflared*.log" -ErrorAction SilentlyContinue | ForEach-Object {
+    try { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction Stop } catch { }
+}
+$log = Join-Path $dataDir ("cloudflared-" + (Get-Date -Format "yyyyMMdd-HHmmss") + ".log")
 Write-Host "Starting tunnel..." -ForegroundColor Yellow
 $cf = Start-Process cloudflared -ArgumentList "tunnel", "--url", "http://localhost:8080" `
     -RedirectStandardError $log -WindowStyle Hidden -PassThru
